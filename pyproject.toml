@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "claude-memory"
+version = "0.1.0"
+description = "Persistent semantic memory for Claude Code — auto-saves and recalls conversation history across sessions."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "claude-memory contributors" }]
+keywords = ["claude", "claude-code", "memory", "rag", "embeddings", "mcp"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "chromadb>=0.5.0",
+    "voyageai>=0.3.0",
+    "mcp>=1.0.0",
+    "anthropic>=0.40.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/by123/claude-memory"
+Issues = "https://github.com/by123/claude-memory/issues"
+
+[project.scripts]
+claude-memory = "claude_memory.cli:main"
+claude-memory-on-prompt = "claude_memory.hooks.on_prompt:main"
+claude-memory-on-stop = "claude_memory.hooks.on_stop:main"
+claude-memory-on-session-end = "claude_memory.hooks.on_session_end:main"
+claude-memory-mcp = "claude_memory.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/claude_memory"]

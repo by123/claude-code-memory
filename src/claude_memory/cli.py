@@ -1,0 +1,361 @@
+"""claude-memory CLI: init, uninstall, status, doctor."""
+import argparse
+import json
+import os
+import shutil
+import sys
+import time
+from pathlib import Path
+
+from . import __version__
+from .config import (
+    CLAUDE_SETTINGS_PATH,
+    DATA_DIR,
+    DB_PATH,
+    ENV_FILE,
+    LOG_PATH,
+    ensure_dirs,
+    load_env,
+)
+
+HOOK_COMMANDS = {
+    "UserPromptSubmit": ("claude-memory-on-prompt", 10000),
+    "Stop": ("claude-memory-on-stop", 15000),
+    "SessionEnd": ("claude-memory-on-session-end", 60000),
+}
+
+HOOK_MARKER_COMMANDS = {cmd for cmd, _ in HOOK_COMMANDS.values()}
+
+
+# --------------------------------------------------------------------- helpers
+
+def _print_ok(msg: str) -> None:
+    print(f"  ✓ {msg}")
+
+
+def _print_warn(msg: str) -> None:
+    print(f"  ! {msg}")
+
+
+def _print_err(msg: str) -> None:
+    print(f"  ✗ {msg}", file=sys.stderr)
+
+
+def _read_settings() -> dict:
+    if not CLAUDE_SETTINGS_PATH.exists():
+        return {}
+    try:
+        return json.loads(CLAUDE_SETTINGS_PATH.read_text())
+    except json.JSONDecodeError as e:
+        raise SystemExit(
+            f"Failed to parse {CLAUDE_SETTINGS_PATH}: {e}\n"
+            "Please fix the JSON manually before running this command."
+        )
+
+
+def _backup_settings() -> Path | None:
+    if not CLAUDE_SETTINGS_PATH.exists():
+        return None
+    bak = CLAUDE_SETTINGS_PATH.with_suffix(f".json.bak.{int(time.time())}")
+    shutil.copy2(CLAUDE_SETTINGS_PATH, bak)
+    return bak
+
+
+def _write_settings(settings: dict) -> None:
+    CLAUDE_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CLAUDE_SETTINGS_PATH.write_text(json.dumps(settings, indent=2) + "\n")
+
+
+def _hook_block_has_command(block: dict, command: str) -> bool:
+    for h in block.get("hooks", []) or []:
+        if h.get("type") == "command" and h.get("command") == command:
+            return True
+    return False
+
+
+def _ensure_hook(settings: dict, event: str, command: str, timeout: int) -> bool:
+    """Insert our hook command for `event` if not already present.
+
+    Returns True if a change was made, False if already present.
+    """
+    hooks = settings.setdefault("hooks", {})
+    blocks = hooks.setdefault(event, [])
+
+    for block in blocks:
+        if _hook_block_has_command(block, command):
+            return False
+
+    blocks.append(
+        {
+            "hooks": [
+                {"type": "command", "command": command, "timeout": timeout}
+            ]
+        }
+    )
+    return True
+
+
+def _remove_hook(settings: dict, event: str, command: str) -> bool:
+    hooks = settings.get("hooks", {})
+    blocks = hooks.get(event)
+    if not blocks:
+        return False
+    new_blocks = []
+    changed = False
+    for block in blocks:
+        inner = block.get("hooks", []) or []
+        kept = [h for h in inner if not (h.get("type") == "command" and h.get("command") == command)]
+        if len(kept) != len(inner):
+            changed = True
+        if kept:
+            new_blocks.append({**block, "hooks": kept})
+    if changed:
+        if new_blocks:
+            hooks[event] = new_blocks
+        else:
+            hooks.pop(event, None)
+    if hooks == {}:
+        settings.pop("hooks", None)
+    return changed
+
+
+def _ensure_env_file() -> bool:
+    """Make sure ENV_FILE exists with at least a VOYAGE_API_KEY line.
+
+    If the file is missing or has no VOYAGE_API_KEY, prompt the user.
+    Returns True if it now contains a non-empty key.
+    """
+    ensure_dirs()
+    existing = {}
+    if ENV_FILE.exists():
+        for line in ENV_FILE.read_text().splitlines():
+            if "=" in line and not line.strip().startswith("#"):
+                k, v = line.split("=", 1)
+                existing[k.strip()] = v.strip()
+
+    if not existing.get("VOYAGE_API_KEY"):
+        try:
+            key = input(
+                "Enter your VOYAGE_API_KEY (get one at https://www.voyageai.com/): "
+            ).strip()
+        except EOFError:
+            key = ""
+        if not key:
+            _print_warn(
+                "VOYAGE_API_KEY not provided. Hooks will fail until you set it in "
+                f"{ENV_FILE}"
+            )
+            existing.setdefault("VOYAGE_API_KEY", "")
+        else:
+            existing["VOYAGE_API_KEY"] = key
+
+    existing.setdefault("TOP_K", "5")
+    existing.setdefault("MIN_SCORE", "0.3")
+
+    lines = [f"{k}={v}" for k, v in existing.items()]
+    ENV_FILE.write_text("\n".join(lines) + "\n")
+    try:
+        os.chmod(ENV_FILE, 0o600)
+    except Exception:
+        pass
+    return bool(existing.get("VOYAGE_API_KEY"))
+
+
+# --------------------------------------------------------------------- commands
+
+def cmd_init(args: argparse.Namespace) -> int:
+    print(f"claude-memory v{__version__} — installing")
+    print(f"  data dir: {DATA_DIR}")
+    print(f"  settings: {CLAUDE_SETTINGS_PATH}")
+    print()
+
+    ensure_dirs()
+    _print_ok(f"Created {DATA_DIR}")
+
+    has_key = _ensure_env_file()
+    if has_key:
+        _print_ok(f"Wrote {ENV_FILE}")
+    else:
+        _print_warn(f"Wrote {ENV_FILE} (VOYAGE_API_KEY still empty)")
+
+    settings = _read_settings()
+    bak = _backup_settings()
+    if bak:
+        _print_ok(f"Backed up settings.json → {bak.name}")
+
+    changed = False
+    for event, (command, timeout) in HOOK_COMMANDS.items():
+        if _ensure_hook(settings, event, command, timeout):
+            _print_ok(f"Registered hook: {event} → {command}")
+            changed = True
+        else:
+            _print_ok(f"Hook already registered: {event}")
+
+    if changed:
+        _write_settings(settings)
+        _print_ok(f"Updated {CLAUDE_SETTINGS_PATH}")
+
+    print()
+    print("Done. Open a new Claude Code session and chat for a few turns.")
+    print("Verify with:  claude-memory status")
+    return 0
+
+
+def cmd_uninstall(args: argparse.Namespace) -> int:
+    print("claude-memory — removing hooks from settings.json")
+
+    if not CLAUDE_SETTINGS_PATH.exists():
+        _print_warn(f"{CLAUDE_SETTINGS_PATH} does not exist; nothing to do.")
+        return 0
+
+    settings = _read_settings()
+    bak = _backup_settings()
+    if bak:
+        _print_ok(f"Backed up settings.json → {bak.name}")
+
+    any_removed = False
+    for event, (command, _) in HOOK_COMMANDS.items():
+        if _remove_hook(settings, event, command):
+            _print_ok(f"Removed hook: {event} → {command}")
+            any_removed = True
+
+    if any_removed:
+        _write_settings(settings)
+        _print_ok(f"Updated {CLAUDE_SETTINGS_PATH}")
+    else:
+        _print_warn("No claude-memory hooks were present in settings.json.")
+
+    print()
+    print(f"Your memory data is preserved at: {DATA_DIR}")
+    print("Delete it manually if you want a clean slate:")
+    print(f"  rm -rf {DATA_DIR}")
+    return 0
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    print(f"claude-memory v{__version__}")
+    print(f"  data dir       : {DATA_DIR}  (exists={DATA_DIR.exists()})")
+    print(f"  env file       : {ENV_FILE}  (exists={ENV_FILE.exists()})")
+    print(f"  database       : {DB_PATH}  (exists={DB_PATH.exists()})")
+    print(f"  hook log       : {LOG_PATH}")
+    print(f"  settings.json  : {CLAUDE_SETTINGS_PATH}  (exists={CLAUDE_SETTINGS_PATH.exists()})")
+
+    load_env()
+    have_key = bool(os.environ.get("VOYAGE_API_KEY"))
+    print(f"  VOYAGE_API_KEY : {'set' if have_key else 'MISSING'}")
+
+    if CLAUDE_SETTINGS_PATH.exists():
+        try:
+            settings = _read_settings()
+        except SystemExit as e:
+            _print_err(str(e))
+            return 1
+        print("  hooks:")
+        for event, (command, _) in HOOK_COMMANDS.items():
+            blocks = settings.get("hooks", {}).get(event, [])
+            present = any(_hook_block_has_command(b, command) for b in blocks)
+            print(f"    {event:<18} {'✓' if present else '✗'}  {command}")
+
+    if DB_PATH.exists() and have_key:
+        try:
+            from .storage import Memory
+            mem = Memory()
+            try:
+                stats = mem.stats()
+            finally:
+                mem.close()
+            print("  stats:")
+            for k, v in stats.items():
+                print(f"    {k:<20} {v}")
+        except Exception as e:
+            _print_warn(f"Could not read stats: {e}")
+    return 0
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    print("claude-memory doctor")
+    rc = 0
+
+    print(f"  python         : {sys.version.split()[0]}")
+    if sys.version_info < (3, 10):
+        _print_err("Python 3.10+ required.")
+        rc = 1
+    else:
+        _print_ok("Python version OK.")
+
+    for mod in ("chromadb", "voyageai", "mcp", "anthropic", "dotenv"):
+        try:
+            __import__(mod)
+            _print_ok(f"import {mod}")
+        except Exception as e:
+            _print_err(f"import {mod} failed: {e}")
+            rc = 1
+
+    ensure_dirs()
+    test = DATA_DIR / ".write_test"
+    try:
+        test.write_text("ok")
+        test.unlink()
+        _print_ok(f"Data dir writable: {DATA_DIR}")
+    except Exception as e:
+        _print_err(f"Data dir not writable: {e}")
+        rc = 1
+
+    load_env()
+    if not os.environ.get("VOYAGE_API_KEY"):
+        _print_err("VOYAGE_API_KEY is not set (run `claude-memory init`).")
+        rc = 1
+    else:
+        try:
+            from .embeddings import embed_one
+            v = embed_one("hello world", input_type="query")
+            if isinstance(v, list) and len(v) > 0:
+                _print_ok(f"Voyage API call OK (embedding dim={len(v)}).")
+            else:
+                _print_err("Voyage API returned an empty embedding.")
+                rc = 1
+        except Exception as e:
+            _print_err(f"Voyage API call failed: {e}")
+            rc = 1
+
+    if CLAUDE_SETTINGS_PATH.exists():
+        try:
+            _read_settings()
+            _print_ok(f"settings.json is valid JSON.")
+        except SystemExit as e:
+            _print_err(str(e))
+            rc = 1
+    else:
+        _print_warn(f"settings.json does not exist yet (run `claude-memory init`).")
+
+    return rc
+
+
+# --------------------------------------------------------------------- entrypoint
+
+def main() -> None:
+    p = argparse.ArgumentParser(
+        prog="claude-memory",
+        description="Persistent semantic memory for Claude Code.",
+    )
+    p.add_argument("--version", action="version", version=f"claude-memory {__version__}")
+    sub = p.add_subparsers(dest="command", required=True)
+
+    sp = sub.add_parser("init", help="Install hooks into ~/.claude/settings.json")
+    sp.set_defaults(func=cmd_init)
+
+    sp = sub.add_parser("uninstall", help="Remove hooks from ~/.claude/settings.json")
+    sp.set_defaults(func=cmd_uninstall)
+
+    sp = sub.add_parser("status", help="Show installation status and stats")
+    sp.set_defaults(func=cmd_status)
+
+    sp = sub.add_parser("doctor", help="Check environment and Voyage API key")
+    sp.set_defaults(func=cmd_doctor)
+
+    args = p.parse_args()
+    sys.exit(args.func(args))
+
+
+if __name__ == "__main__":
+    main()
