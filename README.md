@@ -33,7 +33,7 @@ Storage:
 ## Install
 
 ```bash
-pip install claude-memory
+pip install claude-code-memory
 claude-memory init
 ```
 

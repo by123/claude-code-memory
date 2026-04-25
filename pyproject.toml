@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "claude-memory"
+name = "claude-code-memory"
 version = "0.1.0"
 description = "Persistent semantic memory for Claude Code — auto-saves and recalls conversation history across sessions."
 readme = "README.md"
@@ -28,8 +28,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/by123/claude-memory"
-Issues = "https://github.com/by123/claude-memory/issues"
+Homepage = "https://github.com/by123/claude-code-memory"
+Issues = "https://github.com/by123/claude-code-memory/issues"
 
 [project.scripts]
 claude-memory = "claude_memory.cli:main"

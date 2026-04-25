@@ -31,7 +31,7 @@ Claude   : 记得呀，蛋蛋是你的金色边牧 🐶
 ## 安装
 
 ```bash
-pip install claude-memory
+pip install claude-code-memory
 claude-memory init
 ```
 
