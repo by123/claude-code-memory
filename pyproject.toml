@@ -8,12 +8,12 @@ version = "0.1.0"
 description = "Persistent semantic memory for Claude Code — auto-saves and recalls conversation history across sessions."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "claude-memory contributors" }]
 keywords = ["claude", "claude-code", "memory", "rag", "embeddings", "mcp"]
 classifiers = [
     "Development Status :: 4 - Beta",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
