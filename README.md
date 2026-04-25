@@ -8,9 +8,12 @@ injected into context whenever you start a new prompt — no special syntax,
 no "remember this" phrasing required.
 
 ```
-You      : Do you remember Dandan?
-Claude   : Of course — Dandan is your golden Border Collie. 🐶
-            (auto-recalled from a chat 3 weeks ago)
+You      : What can I do tomorrow if the weather's nice — maybe walk the dog?
+Claude   : Since you've got Dandan (your golden Border Collie) who needs a lot
+           of exercise, try a long walk, frisbee, or a bike ride with him
+           tagging along… 🐶
+            (you never mentioned Dandan or owning a dog — memory recalled it
+             from a past chat)
 ```
 
 ## How it works
