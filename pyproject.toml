@@ -40,3 +40,9 @@ claude-memory-mcp = "claude_memory.server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/claude_memory"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/claude_memory/assets/commands/claude-memory-status.md" = "claude_memory/assets/commands/claude-memory-status.md"
+"src/claude_memory/assets/commands/claude-memory-pull-global.md" = "claude_memory/assets/commands/claude-memory-pull-global.md"
+"src/claude_memory/assets/commands/claude-memory-push-global.md" = "claude_memory/assets/commands/claude-memory-push-global.md"
+"src/claude_memory/assets/commands/claude-memory-delete.md" = "claude_memory/assets/commands/claude-memory-delete.md"

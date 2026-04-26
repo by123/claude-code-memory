@@ -54,11 +54,47 @@ claude-memory status
 ## 命令
 
 ```
-claude-memory init        安装 hooks
-claude-memory status      查看数据目录、hook 注册情况、数据库统计
-claude-memory doctor      自检 Python、依赖、API key、settings.json
-claude-memory uninstall   卸载 hooks（保留数据）
+claude-memory init           安装 hooks 与 slash 命令
+claude-memory init-project   在当前目录创建 .claude-memory/ 标记，启用项目级存储
+claude-memory status         查看数据目录、hook 注册情况、数据库统计
+claude-memory doctor         自检 Python、依赖、API key、settings.json
+claude-memory merge          在项目级 / 全局两个仓库之间合并记忆
+                             （--from / --to 选 project|global，可选 --dry-run）
+claude-memory delete         永久删除某个 scope 的记忆
+                             （--scope project|global|both，默认带二次确认）
+claude-memory uninstall      卸载 hooks 与 slash 命令（保留数据）
 ```
+
+## Slash 命令
+
+`claude-memory init` 会顺带把以下四个全局 slash 命令安装到 `~/.claude/commands/`，
+在任意 Claude Code 会话里直接调用：
+
+| 命令                          | 作用                                                 |
+| ----------------------------- | ---------------------------------------------------- |
+| `/claude-memory-status`       | 查看当前是项目级还是全局，并显示两个仓库的统计       |
+| `/claude-memory-pull-global`  | 把全局历史会话合并到当前项目（global → project）     |
+| `/claude-memory-push-global`  | 把当前项目的历史会话合并到全局（project → global）   |
+| `/claude-memory-delete`       | 永久删除记忆，对话里强制双重确认（输 `DELETE` + `y`）|
+
+这四个命令是 Claude 自然语言执行模板，会自动跑 `claude-memory status` /
+`merge --dry-run` 预览，并在合并 / 删除前征得你的同意。
+
+## 项目级 vs 全局
+
+默认全局共享。在某个项目根目录跑：
+
+```bash
+cd ~/code/my-project
+claude-memory init-project
+```
+
+会创建 `.claude-memory/` 标记目录。之后只要 cwd 在该项目内，记忆就自动切到
+项目级仓库 `<project>/.claude-memory/db/`，与全局 `~/.claude/claude-memory/`
+互不污染。
+
+随时用 `/claude-memory-status` 查看当前 scope，用 `/claude-memory-pull-global`
+/ `/claude-memory-push-global` 在两层之间搬运历史。
 
 ## 配置
 
@@ -90,8 +126,10 @@ claude-memory uninstall   卸载 hooks（保留数据）
 ## 卸载
 
 ```bash
-claude-memory uninstall            # 从 settings.json 移除 hooks
-rm -rf ~/.claude/claude-memory     # 删除所有存储的数据（不可逆）
+claude-memory uninstall                   # 移除 hooks 与 slash 命令
+claude-memory delete --scope global       # 删除全局存储数据（带确认）
+# 或
+rm -rf ~/.claude/claude-memory            # 直接 rm（不可逆）
 ```
 
 ## 隐私说明

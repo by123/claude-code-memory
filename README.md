@@ -58,11 +58,50 @@ You should see `turns` and `chroma_turns` counters going up.
 ## CLI
 
 ```
-claude-memory init        Install hooks
-claude-memory status      Show data dir, hook registration, DB stats
-claude-memory doctor      Verify Python, deps, API key, settings.json
-claude-memory uninstall   Remove hooks (keeps your data)
+claude-memory init           Install hooks and slash commands
+claude-memory init-project   Create a .claude-memory/ marker in cwd to enable
+                             project-level storage
+claude-memory status         Show data dir, hook registration, DB stats
+claude-memory doctor         Verify Python, deps, API key, settings.json
+claude-memory merge          Merge memory between the project and global stores
+                             (--from / --to is project|global, with --dry-run)
+claude-memory delete         Permanently delete memory for a scope
+                             (--scope project|global|both, with double confirm)
+claude-memory uninstall      Remove hooks and slash commands (keeps your data)
 ```
+
+## Slash commands
+
+`claude-memory init` also installs four global slash commands into
+`~/.claude/commands/`, callable from any Claude Code session:
+
+| Command                         | What it does                                                |
+| ------------------------------- | ----------------------------------------------------------- |
+| `/claude-memory-status`         | Show current scope (project vs global) with stats for both  |
+| `/claude-memory-pull-global`    | Merge global memory into the current project (global → proj)|
+| `/claude-memory-push-global`    | Merge current project memory into global (proj → global)    |
+| `/claude-memory-delete`         | Delete memory with mandatory double confirm (`DELETE` + `y`)|
+
+Each of these runs `claude-memory status` / `merge --dry-run` first and asks
+for your approval before any write or destructive action.
+
+## Project-level vs global
+
+Memory is global by default. Run this in a project root:
+
+```bash
+cd ~/code/my-project
+claude-memory init-project
+```
+
+It creates a `.claude-memory/` marker. As long as your cwd is inside that
+project, memory transparently switches to the project-level store at
+`<project>/.claude-memory/db/`, isolated from the global one at
+`~/.claude/claude-memory/`.
+
+Use `/claude-memory-status` to inspect the active scope, and
+`/claude-memory-pull-global` / `/claude-memory-push-global` to move history
+between the two layers.
 
 ## Configuration
 
@@ -94,8 +133,10 @@ You can also expose memory as MCP tools for Claude Code (`search_memory`,
 ## Uninstall
 
 ```bash
-claude-memory uninstall            # removes hooks from settings.json
-rm -rf ~/.claude/claude-memory     # delete all your stored data (irreversible)
+claude-memory uninstall                   # remove hooks + slash commands
+claude-memory delete --scope global       # delete the global store (confirms)
+# or
+rm -rf ~/.claude/claude-memory            # nuke directly (irreversible)
 ```
 
 ## Privacy
