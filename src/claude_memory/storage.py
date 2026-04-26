@@ -37,6 +37,17 @@ CREATE TABLE IF NOT EXISTS summaries (
 CREATE INDEX IF NOT EXISTS idx_turns_session ON turns(session_id);
 CREATE INDEX IF NOT EXISTS idx_turns_ts ON turns(ts);
 CREATE INDEX IF NOT EXISTS idx_summaries_session ON summaries(session_id);
+CREATE TABLE IF NOT EXISTS tags (
+    name TEXT PRIMARY KEY,
+    created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS turn_tags (
+    turn_id TEXT NOT NULL,
+    tag_name TEXT NOT NULL,
+    PRIMARY KEY (turn_id, tag_name)
+);
+CREATE INDEX IF NOT EXISTS idx_turn_tags_turn ON turn_tags(turn_id);
+CREATE INDEX IF NOT EXISTS idx_turn_tags_tag ON turn_tags(tag_name);
 """
 
 
@@ -245,6 +256,110 @@ class Memory:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    # ---------- browser-style listing & tags ----------
+    def _attach_tags(self, turns: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if not turns:
+            return turns
+        ids = [t["id"] for t in turns]
+        placeholders = ",".join("?" for _ in ids)
+        rows = self.db.execute(
+            f"SELECT turn_id, tag_name FROM turn_tags WHERE turn_id IN ({placeholders})",
+            ids,
+        ).fetchall()
+        by_id: Dict[str, List[str]] = {i: [] for i in ids}
+        for r in rows:
+            by_id[r["turn_id"]].append(r["tag_name"])
+        for t in turns:
+            t["tags"] = sorted(by_id.get(t["id"], []))
+        return turns
+
+    def list_turns(
+        self,
+        limit: int = 20,
+        offset: int = 0,
+        query: Optional[str] = None,
+        tag: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        sql = (
+            "SELECT t.id, t.session_id, t.ts, t.cwd, t.user_msg, t.assistant_msg "
+            "FROM turns t"
+        )
+        params: list = []
+        wheres: list = []
+        if tag:
+            sql += " JOIN turn_tags tt ON tt.turn_id = t.id"
+            wheres.append("tt.tag_name = ?")
+            params.append(tag)
+        if query:
+            wheres.append("(t.user_msg LIKE ? OR t.assistant_msg LIKE ?)")
+            like = f"%{query}%"
+            params.extend([like, like])
+        if wheres:
+            sql += " WHERE " + " AND ".join(wheres)
+        sql += " ORDER BY t.ts DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+        rows = [dict(r) for r in self.db.execute(sql, params).fetchall()]
+        return self._attach_tags(rows)
+
+    def count_turns(self, query: Optional[str] = None, tag: Optional[str] = None) -> int:
+        sql = "SELECT COUNT(*) FROM turns t"
+        params: list = []
+        wheres: list = []
+        if tag:
+            sql += " JOIN turn_tags tt ON tt.turn_id = t.id"
+            wheres.append("tt.tag_name = ?")
+            params.append(tag)
+        if query:
+            wheres.append("(t.user_msg LIKE ? OR t.assistant_msg LIKE ?)")
+            like = f"%{query}%"
+            params.extend([like, like])
+        if wheres:
+            sql += " WHERE " + " AND ".join(wheres)
+        return int(self.db.execute(sql, params).fetchone()[0])
+
+    def list_tags(self) -> List[Dict[str, Any]]:
+        rows = self.db.execute(
+            "SELECT t.name, t.created_at, COUNT(tt.turn_id) AS count "
+            "FROM tags t LEFT JOIN turn_tags tt ON tt.tag_name = t.name "
+            "GROUP BY t.name ORDER BY count DESC, t.name"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def add_tag(self, turn_id: str, tag: str) -> bool:
+        tag = tag.strip().lstrip("#")
+        if not tag:
+            return False
+        row = self.db.execute("SELECT id FROM turns WHERE id = ?", (turn_id,)).fetchone()
+        if row is None:
+            return False
+        self.db.execute(
+            "INSERT OR IGNORE INTO tags(name, created_at) VALUES(?, ?)",
+            (tag, time.time()),
+        )
+        cur = self.db.execute(
+            "INSERT OR IGNORE INTO turn_tags(turn_id, tag_name) VALUES(?, ?)",
+            (turn_id, tag),
+        )
+        self.db.commit()
+        return cur.rowcount > 0
+
+    def remove_tag(self, turn_id: str, tag: str) -> bool:
+        tag = tag.strip().lstrip("#")
+        cur = self.db.execute(
+            "DELETE FROM turn_tags WHERE turn_id = ? AND tag_name = ?",
+            (turn_id, tag),
+        )
+        self.db.commit()
+        # Garbage-collect a tag with no remaining attachments.
+        if cur.rowcount > 0:
+            left = self.db.execute(
+                "SELECT 1 FROM turn_tags WHERE tag_name = ? LIMIT 1", (tag,)
+            ).fetchone()
+            if left is None:
+                self.db.execute("DELETE FROM tags WHERE name = ?", (tag,))
+                self.db.commit()
+        return cur.rowcount > 0
+
     def get_session_turns(self, session_id: str) -> List[Dict[str, Any]]:
         rows = self.db.execute(
             "SELECT id, ts, user_msg, assistant_msg FROM turns WHERE session_id = ? ORDER BY ts",
@@ -253,7 +368,21 @@ class Memory:
         return [dict(r) for r in rows]
 
     def forget(self, turn_id: str) -> bool:
+        affected_tags = [
+            r["tag_name"]
+            for r in self.db.execute(
+                "SELECT tag_name FROM turn_tags WHERE turn_id = ?", (turn_id,)
+            ).fetchall()
+        ]
+        self.db.execute("DELETE FROM turn_tags WHERE turn_id = ?", (turn_id,))
         cur = self.db.execute("DELETE FROM turns WHERE id = ?", (turn_id,))
+        # Garbage-collect any tag that no longer has attachments.
+        for tag in affected_tags:
+            left = self.db.execute(
+                "SELECT 1 FROM turn_tags WHERE tag_name = ? LIMIT 1", (tag,)
+            ).fetchone()
+            if left is None:
+                self.db.execute("DELETE FROM tags WHERE name = ?", (tag,))
         self.db.commit()
         if cur.rowcount == 0:
             cur2 = self.db.execute("DELETE FROM summaries WHERE id = ?", (turn_id,))

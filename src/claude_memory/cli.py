@@ -31,6 +31,7 @@ SLASH_COMMAND_NAMES = (
     "claude-memory-pull-global.md",
     "claude-memory-push-global.md",
     "claude-memory-delete.md",
+    "claude-memory-history.md",
 )
 
 HOOK_COMMANDS = {
@@ -645,6 +646,49 @@ def cmd_delete(args: argparse.Namespace) -> int:
     return 0
 
 
+# --------------------------------------------------------------------- web
+
+def cmd_web(args: argparse.Namespace) -> int:
+    try:
+        import uvicorn  # noqa: F401
+    except ImportError:
+        _print_err(
+            "uvicorn is not installed. Reinstall with `pip install -U claude-code-memory`."
+        )
+        return 1
+
+    host = args.host
+    port = args.port
+    if port == 0:
+        # Pre-bind to grab a free port so we can print/open it before uvicorn starts.
+        import socket
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind((host, 0))
+            port = s.getsockname()[1]
+
+    url = f"http://{host}:{port}"
+    print(f"claude-memory web — serving at {url}")
+    print("Press Ctrl+C to stop.")
+
+    if not args.no_open:
+        import threading
+        import webbrowser
+
+        def _open_later() -> None:
+            import time as _t
+            _t.sleep(0.6)
+            try:
+                webbrowser.open(url)
+            except Exception:
+                pass
+
+        threading.Thread(target=_open_later, daemon=True).start()
+
+    import uvicorn
+    uvicorn.run("claude_memory.web:app", host=host, port=port, log_level="warning")
+    return 0
+
+
 # --------------------------------------------------------------------- entrypoint
 
 def main() -> None:
@@ -692,6 +736,12 @@ def main() -> None:
     sp.add_argument("--scope", required=True, choices=["project", "global", "both"])
     sp.add_argument("-y", "--yes", action="store_true", help="Skip the interactive double-confirmation")
     sp.set_defaults(func=cmd_delete)
+
+    sp = sub.add_parser("web", help="Launch a local Web UI to browse memory")
+    sp.add_argument("--host", default="127.0.0.1", help="Bind host (default 127.0.0.1)")
+    sp.add_argument("--port", type=int, default=9527, help="Bind port (default 9527; use 0 for a random free port)")
+    sp.add_argument("--no-open", action="store_true", help="Do not auto-open a browser tab")
+    sp.set_defaults(func=cmd_web)
 
     args = p.parse_args()
     sys.exit(args.func(args))

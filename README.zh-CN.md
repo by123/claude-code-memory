@@ -67,7 +67,7 @@ claude-memory uninstall      卸载 hooks 与 slash 命令（保留数据）
 
 ## Slash 命令
 
-`claude-memory init` 会顺带把以下四个全局 slash 命令安装到 `~/.claude/commands/`，
+`claude-memory init` 会顺带把以下五个全局 slash 命令安装到 `~/.claude/commands/`，
 在任意 Claude Code 会话里直接调用：
 
 | 命令                          | 作用                                                 |
@@ -76,9 +76,49 @@ claude-memory uninstall      卸载 hooks 与 slash 命令（保留数据）
 | `/claude-memory-pull-global`  | 把全局历史会话合并到当前项目（global → project）     |
 | `/claude-memory-push-global`  | 把当前项目的历史会话合并到全局（project → global）   |
 | `/claude-memory-delete`       | 永久删除记忆，对话里强制双重确认（输 `DELETE` + `y`）|
+| `/claude-memory-history`      | 打开本地 Web UI 浏览历史，支持搜索、打标签、删除     |
 
-这四个命令是 Claude 自然语言执行模板，会自动跑 `claude-memory status` /
+这些命令是 Claude 自然语言执行模板，会自动跑 `claude-memory status` /
 `merge --dry-run` 预览，并在合并 / 删除前征得你的同意。
+
+## Web UI
+
+在 Claude Code 里输 `/claude-memory-history`（或直接跑 `claude-memory web`），
+会在 `127.0.0.1` 启动一个 FastAPI + React 的本地服务并自动开浏览器。在页面里你可以：
+
+- 在 **项目级** 与 **全局** 之间一键切换
+- 翻页浏览所有 turn
+- **关键字**（SQL `LIKE`）或 **语义** 搜索（基于 Voyage 向量）
+- 给单条 turn 打标签（如 `#work`、`#personal`），并按标签过滤
+- 删除单条 turn（同时清掉 Chroma 里的向量）
+
+### 使用方式
+
+```bash
+# 默认 —— 监听 http://127.0.0.1:9527 并自动开浏览器
+claude-memory web
+
+# 换端口
+claude-memory web --port 8080
+
+# 让系统挑一个空闲端口
+claude-memory web --port 0
+
+# 不自动开浏览器（headless / SSH 场景）
+claude-memory web --no-open
+```
+
+UI 上的操作直接落库：
+
+| 操作         | 实际写入                                                              |
+| ------------ | --------------------------------------------------------------------- |
+| **删除 turn**| 同步删 SQLite 的 `turns` / `turn_tags` 行 + Chroma 向量               |
+| **加标签**   | 写入 SQLite 的 `tags`（不存在则新建）和 `turn_tags`                   |
+| **移除标签** | 删 `turn_tags`；如果该标签没人用了，再清 `tags` 里的孤立行            |
+| **关键字搜索**| SQL `LIKE` 直查 `user_msg` / `assistant_msg`，不调用 embedding 接口 |
+| **语义搜索** | 调一次 Voyage 算 query 向量，再从 Chroma 取 top-K                     |
+
+服务只监听 `127.0.0.1`，按 `Ctrl+C` 关闭。
 
 ## 项目级 vs 全局
 
@@ -150,8 +190,8 @@ rm -rf ~/.claude/claude-memory            # 直接 rm（不可逆）
 - [ ] **记忆导入 / 导出与跨设备同步**
   提供 `claude-memory export` / `import` 命令，支持 JSONL 格式备份与恢复；配合 iCloud / Dropbox / Git 仓库放置 `db/` 目录，或内置 `claude-memory sync` 子命令，实现多台设备记忆共享。
 
-- [ ] **本地 Web UI 记忆浏览器**
-  本地可视化界面，支持翻页浏览、关键字 / 语义搜索、单条删除、打标签（如 `#work` `#personal`）等操作。通过 slash 命令 `/claude-memory-history` 打开，页面同时展示项目级与全局的历史对话。
+- [x] **本地 Web UI 记忆浏览器**
+  基于 FastAPI + React 的本地可视化界面，支持翻页浏览、关键字 / 语义搜索、单条删除、打标签（如 `#work` `#personal`）等操作。通过 slash 命令 `/claude-memory-history`（或 `claude-memory web`）打开，页面同时展示项目级与全局的历史对话，可一键切换。
 
 ## 协议
 

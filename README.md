@@ -72,7 +72,7 @@ claude-memory uninstall      Remove hooks and slash commands (keeps your data)
 
 ## Slash commands
 
-`claude-memory init` also installs four global slash commands into
+`claude-memory init` also installs five global slash commands into
 `~/.claude/commands/`, callable from any Claude Code session:
 
 | Command                         | What it does                                                |
@@ -81,9 +81,48 @@ claude-memory uninstall      Remove hooks and slash commands (keeps your data)
 | `/claude-memory-pull-global`    | Merge global memory into the current project (global → proj)|
 | `/claude-memory-push-global`    | Merge current project memory into global (proj → global)    |
 | `/claude-memory-delete`         | Delete memory with mandatory double confirm (`DELETE` + `y`)|
+| `/claude-memory-history`        | Open a local Web UI to browse, search, tag, and delete turns|
 
 Each of these runs `claude-memory status` / `merge --dry-run` first and asks
 for your approval before any write or destructive action.
+
+## Web UI
+
+Type `/claude-memory-history` in Claude Code (or run `claude-memory web`) to
+launch a local FastAPI + React UI on `127.0.0.1`. The page opens automatically
+in your browser and lets you:
+
+- Switch between **project** and **global** scopes
+- Page through every saved turn
+- Search by **keyword** (SQL `LIKE`) or **semantic** similarity (Voyage embeddings)
+- Tag turns (e.g. `#work`, `#personal`) and filter by tag
+- Delete a single turn (also clears its embedding from Chroma)
+
+### Usage
+
+```bash
+# default — listens on http://127.0.0.1:9527 and opens your browser
+claude-memory web
+
+# pick a different port
+claude-memory web --port 8080
+
+# or let the OS assign a free port
+claude-memory web --port 0
+
+# don't auto-open the browser (useful in headless / SSH sessions)
+claude-memory web --no-open
+```
+
+| Action               | What happens on disk                                                        |
+| -------------------- | --------------------------------------------------------------------------- |
+| **Delete a turn**    | Row removed from SQLite `turns` and `turn_tags`; embedding removed from Chroma |
+| **Add a tag**        | Inserted into SQLite `tags` (created on demand) and `turn_tags`             |
+| **Remove a tag**     | Row removed from `turn_tags`; orphaned tag is GC'd from `tags`              |
+| **Search (keyword)** | SQL `LIKE` over `user_msg` and `assistant_msg` — no embedding call          |
+| **Search (semantic)**| One Voyage embedding per query, then top-K from Chroma                      |
+
+The server only binds to `127.0.0.1`. Press `Ctrl+C` to stop it.
 
 ## Project-level vs global
 
@@ -167,11 +206,11 @@ rm -rf ~/.claude/claude-memory            # nuke directly (irreversible)
   in iCloud / Dropbox / a Git repo, or use a built-in `claude-memory sync`
   subcommand to share memory across machines.
 
-- [ ] **Local Web UI memory browser**
-  A local web UI with paging, keyword / semantic search, single-entry deletion,
-  and tagging (e.g. `#work`, `#personal`). Run the slash command
-  `/claude-memory-history` to open it — the page shows both project-level and
-  global histories side by side.
+- [x] **Local Web UI memory browser**
+  A local FastAPI + React UI with paging, keyword / semantic search,
+  single-turn deletion, and tagging (e.g. `#work`, `#personal`). Launch with
+  `/claude-memory-history` (or `claude-memory web`); the page exposes both
+  project-level and global histories with a one-click scope toggle.
 
 ## License
 

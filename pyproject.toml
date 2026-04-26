@@ -25,6 +25,8 @@ dependencies = [
     "mcp>=1.0.0",
     "anthropic>=0.40.0",
     "python-dotenv>=1.0.0",
+    "fastapi>=0.110.0",
+    "uvicorn>=0.27.0",
 ]
 
 [project.urls]
@@ -46,3 +48,5 @@ packages = ["src/claude_memory"]
 "src/claude_memory/assets/commands/claude-memory-pull-global.md" = "claude_memory/assets/commands/claude-memory-pull-global.md"
 "src/claude_memory/assets/commands/claude-memory-push-global.md" = "claude_memory/assets/commands/claude-memory-push-global.md"
 "src/claude_memory/assets/commands/claude-memory-delete.md" = "claude_memory/assets/commands/claude-memory-delete.md"
+"src/claude_memory/assets/commands/claude-memory-history.md" = "claude_memory/assets/commands/claude-memory-history.md"
+"src/claude_memory/assets/web" = "claude_memory/assets/web"

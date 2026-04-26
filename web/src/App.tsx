@@ -1,0 +1,288 @@
+import { useEffect, useMemo, useState } from "react";
+import { api } from "./api";
+import type { ScopesResponse, SearchMode, Scope, TagInfo, Turn } from "./types";
+import { TurnCard } from "./components/TurnCard";
+
+const PAGE_SIZE = 15;
+
+export default function App() {
+  const [scopes, setScopes] = useState<ScopesResponse | null>(null);
+  const [scope, setScope] = useState<Scope>("global");
+  const [page, setPage] = useState(1);
+  const [query, setQuery] = useState("");
+  const [submittedQuery, setSubmittedQuery] = useState("");
+  const [mode, setMode] = useState<SearchMode>("keyword");
+  const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [items, setItems] = useState<Turn[]>([]);
+  const [total, setTotal] = useState(0);
+  const [tags, setTags] = useState<TagInfo[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Initial scope discovery.
+  useEffect(() => {
+    api.scopes().then((s) => {
+      setScopes(s);
+      // Prefer project scope if available so the user sees project-level history first.
+      if (s.project) setScope("project");
+    });
+  }, []);
+
+  const refreshTags = (s: Scope) => {
+    api
+      .tags(s)
+      .then(setTags)
+      .catch(() => setTags([]));
+  };
+
+  useEffect(() => {
+    refreshTags(scope);
+  }, [scope]);
+
+  // Re-fetch turns whenever filters change.
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    api
+      .turns({
+        scope,
+        page,
+        pageSize: PAGE_SIZE,
+        q: submittedQuery || undefined,
+        tag: activeTag || undefined,
+        mode,
+      })
+      .then((r) => {
+        if (cancelled) return;
+        setItems(r.items);
+        setTotal(r.total);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setError(String(e));
+        setItems([]);
+        setTotal(0);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [scope, page, submittedQuery, activeTag, mode]);
+
+  const totalPages = useMemo(() => {
+    if (mode === "semantic") return 1;
+    return Math.max(1, Math.ceil(total / PAGE_SIZE));
+  }, [total, mode]);
+
+  const onSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    setPage(1);
+    setSubmittedQuery(query.trim());
+  };
+
+  const onClear = () => {
+    setQuery("");
+    setSubmittedQuery("");
+    setActiveTag(null);
+    setPage(1);
+  };
+
+  const handleDelete = async (turn: Turn) => {
+    if (!confirm("Delete this turn permanently?")) return;
+    try {
+      await api.deleteTurn(scope, turn.id);
+      setItems((prev) => prev.filter((t) => t.id !== turn.id));
+      setTotal((n) => Math.max(0, n - 1));
+      refreshTags(scope);
+    } catch (e) {
+      alert(`Delete failed: ${e}`);
+    }
+  };
+
+  const handleAddTag = async (turn: Turn, name: string) => {
+    const clean = name.trim().replace(/^#/, "");
+    if (!clean) return;
+    try {
+      await api.addTag(scope, turn.id, clean);
+      setItems((prev) =>
+        prev.map((t) =>
+          t.id === turn.id && !t.tags.includes(clean)
+            ? { ...t, tags: [...t.tags, clean].sort() }
+            : t,
+        ),
+      );
+      refreshTags(scope);
+    } catch (e) {
+      alert(`Add tag failed: ${e}`);
+    }
+  };
+
+  const handleRemoveTag = async (turn: Turn, name: string) => {
+    try {
+      await api.removeTag(scope, turn.id, name);
+      setItems((prev) =>
+        prev.map((t) => (t.id === turn.id ? { ...t, tags: t.tags.filter((x) => x !== name) } : t)),
+      );
+      refreshTags(scope);
+    } catch (e) {
+      alert(`Remove tag failed: ${e}`);
+    }
+  };
+
+  return (
+    <div className="layout">
+      <header className="topbar">
+        <div className="brand">
+          <span className="brand-mark">●</span> claude-memory
+          <span className="brand-sub">history</span>
+        </div>
+
+        <div className="scope-tabs">
+          <button
+            className={scope === "project" ? "tab active" : "tab"}
+            disabled={!scopes?.project}
+            onClick={() => {
+              setScope("project");
+              setPage(1);
+            }}
+            title={scopes?.project_dir ?? "no project marker found"}
+          >
+            project {scopes?.project ? "" : "(n/a)"}
+          </button>
+          <button
+            className={scope === "global" ? "tab active" : "tab"}
+            onClick={() => {
+              setScope("global");
+              setPage(1);
+            }}
+            title={scopes?.global_dir ?? ""}
+          >
+            global
+          </button>
+        </div>
+      </header>
+
+      <div className="main">
+        <aside className="sidebar">
+          <form className="search" onSubmit={onSearch}>
+            <input
+              placeholder="search…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            <div className="mode">
+              <label>
+                <input
+                  type="radio"
+                  checked={mode === "keyword"}
+                  onChange={() => setMode("keyword")}
+                />{" "}
+                keyword
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  checked={mode === "semantic"}
+                  onChange={() => setMode("semantic")}
+                />{" "}
+                semantic
+              </label>
+            </div>
+            <div className="search-actions">
+              <button type="submit">search</button>
+              <button type="button" onClick={onClear}>
+                clear
+              </button>
+            </div>
+          </form>
+
+          <div className="tags-block">
+            <div className="block-title">tags</div>
+            {tags.length === 0 ? (
+              <div className="empty">no tags yet</div>
+            ) : (
+              <ul className="tag-list">
+                {tags.map((t) => (
+                  <li key={t.name}>
+                    <button
+                      className={activeTag === t.name ? "tag-pill active" : "tag-pill"}
+                      onClick={() => {
+                        setActiveTag((prev) => (prev === t.name ? null : t.name));
+                        setPage(1);
+                      }}
+                    >
+                      #{t.name} <span className="count">{t.count}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="meta">
+            <div>
+              <strong>cwd</strong>
+              <code>{scopes?.cwd}</code>
+            </div>
+            {scopes?.project_dir && (
+              <div>
+                <strong>project</strong>
+                <code>{scopes.project_dir}</code>
+              </div>
+            )}
+            <div>
+              <strong>global</strong>
+              <code>{scopes?.global_dir}</code>
+            </div>
+          </div>
+        </aside>
+
+        <section className="content">
+          <div className="status">
+            <span>
+              {mode === "semantic" && submittedQuery
+                ? `top ${items.length} semantic matches`
+                : `${total} turn${total === 1 ? "" : "s"}`}
+              {activeTag ? ` · #${activeTag}` : ""}
+              {submittedQuery ? ` · "${submittedQuery}"` : ""}
+            </span>
+            {loading && <span className="loading">loading…</span>}
+          </div>
+
+          {error && <div className="error">{error}</div>}
+
+          <ul className="turns">
+            {items.map((t) => (
+              <TurnCard
+                key={t.id}
+                turn={t}
+                onDelete={() => handleDelete(t)}
+                onAddTag={(name) => handleAddTag(t, name)}
+                onRemoveTag={(name) => handleRemoveTag(t, name)}
+              />
+            ))}
+          </ul>
+
+          {!loading && items.length === 0 && <div className="empty">no turns to show.</div>}
+
+          {mode === "keyword" && totalPages > 1 && (
+            <div className="pagination">
+              <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+                ← prev
+              </button>
+              <span>
+                {page} / {totalPages}
+              </span>
+              <button disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+                next →
+              </button>
+            </div>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}

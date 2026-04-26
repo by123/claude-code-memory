@@ -12,3 +12,8 @@ db/
 .DS_Store
 .idea/
 .vscode/
+web/node_modules/
+web/dist/
+src/claude_memory/assets/web/
+.playwright-mcp/
+claude-memory-webui*.png
