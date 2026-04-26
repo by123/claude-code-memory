@@ -101,6 +101,20 @@ rm -rf ~/.claude/claude-memory     # 删除所有存储的数据（不可逆）
   **Anthropic**（生成会话摘要）
 - 想加密静态数据的话，把 `CLAUDE_MEMORY_DIR` 指向一个加密卷即可
 
+## Roadmap
+
+- [ ] **项目级 / 全局双层存储**
+  默认全局共享，进入项目目录后自动切换到项目级（通过 `.claude-memory/` 标记或配置项指定），避免不同项目的历史互相污染。检索时支持"仅本项目 / 仅全局 / 合并"三种模式。
+
+- [ ] **多 CLI 客户端支持**
+  在现有 Claude Code 基础上扩展到 **Cursor CLI、Codex CLI、Gemini CLI**，提供 `claude-memory install --client <name>` 一键写入 MCP 配置，并附带强制召回的 rules 模板，确保各客户端都能稳定触发记忆查询。
+
+- [ ] **记忆导入 / 导出与跨设备同步**
+  提供 `claude-memory export` / `import` 命令，支持 JSONL 格式备份与恢复；配合 iCloud / Dropbox / Git 仓库放置 `db/` 目录，或内置 `claude-memory sync` 子命令，实现多台设备记忆共享。
+
+- [ ] **TUI 记忆浏览器**
+  `claude-memory browse` 进入终端可视化界面，支持翻页浏览、关键字 / 语义搜索、单条删除、打标签（如 `#work` `#personal`）等操作。
+
 ## 协议
 
 MIT — 详见 [LICENSE](./LICENSE)。

@@ -106,6 +106,28 @@ rm -rf ~/.claude/claude-memory     # delete all your stored data (irreversible)
 - Set `CLAUDE_MEMORY_DIR` to encrypt at rest with whatever filesystem-level
   encryption your OS provides.
 
+## Roadmap
+
+- [ ] **Project-level / global dual-layer storage**
+  Global by default; auto-switch to project-level when a `.claude-memory/`
+  marker (or config) is present in the working directory, so histories from
+  different projects don't bleed into each other. Search supports
+  "project only / global only / merged" modes.
+
+- [ ] **Multi-CLI client support**
+  Extend beyond Claude Code to **Cursor CLI, Codex CLI, Gemini CLI**. Provide
+  `claude-memory install --client <name>` to write MCP configs in one shot,
+  with rules templates that force consistent recall on each client.
+
+- [ ] **Import / export & cross-device sync**
+  `claude-memory export` / `import` for JSONL backup and restore; place `db/`
+  in iCloud / Dropbox / a Git repo, or use a built-in `claude-memory sync`
+  subcommand to share memory across machines.
+
+- [ ] **TUI memory browser**
+  `claude-memory browse` opens a terminal UI with paging, keyword / semantic
+  search, single-entry deletion, and tagging (e.g. `#work`, `#personal`).
+
 ## License
 
 MIT — see [LICENSE](./LICENSE).
