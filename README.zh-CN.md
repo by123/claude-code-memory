@@ -150,8 +150,8 @@ rm -rf ~/.claude/claude-memory            # 直接 rm（不可逆）
 - [ ] **记忆导入 / 导出与跨设备同步**
   提供 `claude-memory export` / `import` 命令，支持 JSONL 格式备份与恢复；配合 iCloud / Dropbox / Git 仓库放置 `db/` 目录，或内置 `claude-memory sync` 子命令，实现多台设备记忆共享。
 
-- [ ] **TUI 记忆浏览器**
-  `claude-memory browse` 进入终端可视化界面，支持翻页浏览、关键字 / 语义搜索、单条删除、打标签（如 `#work` `#personal`）等操作。
+- [ ] **本地 Web UI 记忆浏览器**
+  本地可视化界面，支持翻页浏览、关键字 / 语义搜索、单条删除、打标签（如 `#work` `#personal`）等操作。通过 slash 命令 `/claude-memory-history` 打开，页面同时展示项目级与全局的历史对话。
 
 ## 协议
 

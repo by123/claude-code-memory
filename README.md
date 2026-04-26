@@ -167,9 +167,11 @@ rm -rf ~/.claude/claude-memory            # nuke directly (irreversible)
   in iCloud / Dropbox / a Git repo, or use a built-in `claude-memory sync`
   subcommand to share memory across machines.
 
-- [ ] **TUI memory browser**
-  `claude-memory browse` opens a terminal UI with paging, keyword / semantic
-  search, single-entry deletion, and tagging (e.g. `#work`, `#personal`).
+- [ ] **Local Web UI memory browser**
+  A local web UI with paging, keyword / semantic search, single-entry deletion,
+  and tagging (e.g. `#work`, `#personal`). Run the slash command
+  `/claude-memory-history` to open it — the page shows both project-level and
+  global histories side by side.
 
 ## License
 
