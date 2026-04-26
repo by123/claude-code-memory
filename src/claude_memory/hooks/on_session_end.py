@@ -43,13 +43,15 @@ def _main() -> int:
     session_id = data.get("session_id") or ""
     if not session_id:
         return 0
+    cwd = data.get("cwd") or ""
 
     try:
-        from ..config import load_env
+        from ..config import load_env, resolve_data_dir
         from ..storage import Memory
-        load_env()
+        data_dir = resolve_data_dir(cwd)
+        load_env(data_dir)
 
-        mem = Memory()
+        mem = Memory(data_dir=data_dir)
         turns = mem.get_session_turns(session_id)
         if len(turns) < 2:
             mem.end_session(session_id)

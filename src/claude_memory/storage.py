@@ -2,12 +2,13 @@
 import sqlite3
 import time
 import uuid
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 import chromadb
 from chromadb.config import Settings
 
-from .config import DB_PATH, CHROMA_DIR, ensure_dirs
+from .config import GLOBAL_DATA_DIR, ensure_dirs, paths_for
 from .embeddings import embed_one
 
 SCHEMA = """
@@ -40,10 +41,16 @@ CREATE INDEX IF NOT EXISTS idx_summaries_session ON summaries(session_id);
 
 
 class Memory:
-    def __init__(self) -> None:
-        ensure_dirs()
-        CHROMA_DIR.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(DB_PATH)
+    def __init__(self, data_dir: Optional[Path] = None) -> None:
+        self.data_dir = data_dir or GLOBAL_DATA_DIR
+        paths = paths_for(self.data_dir)
+        ensure_dirs(self.data_dir)
+        paths["chroma_dir"].mkdir(parents=True, exist_ok=True)
+
+        self.db_path = paths["db_path"]
+        self.chroma_dir = paths["chroma_dir"]
+
+        self.db = sqlite3.connect(self.db_path)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
         cols = {r[1] for r in self.db.execute("PRAGMA table_info(turns)")}
@@ -56,7 +63,7 @@ class Memory:
         self.db.commit()
 
         self.chroma = chromadb.PersistentClient(
-            path=str(CHROMA_DIR),
+            path=str(self.chroma_dir),
             settings=Settings(anonymized_telemetry=False),
         )
         self.turns = self.chroma.get_or_create_collection(
@@ -266,3 +273,45 @@ class Memory:
 
     def close(self) -> None:
         self.db.close()
+
+
+def search_scoped(
+    query: str,
+    cwd: Optional[str] = None,
+    scope: str = "auto",
+    top_k: int = 5,
+    min_score: float = 0.3,
+) -> List[Dict[str, Any]]:
+    """Scope-aware search across project and/or global stores.
+
+    scope:
+      - "auto"    : project store if cwd is inside a project, else global
+      - "project" : project store only (empty results if no project)
+      - "global"  : global store only
+      - "merged"  : query both stores and combine results
+
+    Each result is annotated with a `scope` field ("project" | "global").
+    """
+    from .config import GLOBAL_DATA_DIR, find_project_root
+
+    proj_dir = find_project_root(cwd) if cwd else None
+    if scope == "auto":
+        scope = "project" if proj_dir else "global"
+
+    targets: List = []
+    if scope in ("project", "merged") and proj_dir is not None:
+        targets.append(("project", proj_dir))
+    if scope in ("global", "merged"):
+        targets.append(("global", GLOBAL_DATA_DIR))
+
+    out: List[Dict[str, Any]] = []
+    for label, ddir in targets:
+        m = Memory(data_dir=ddir)
+        try:
+            for r in m.search(query, top_k=top_k, min_score=min_score):
+                r["scope"] = label
+                out.append(r)
+        finally:
+            m.close()
+    out.sort(key=lambda x: x["score"], reverse=True)
+    return out[:top_k]

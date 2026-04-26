@@ -2,7 +2,7 @@
 import json
 import os
 
-from .config import STATE_PATH
+from .config import paths_for, resolve_data_dir
 from .storage import Memory
 
 
@@ -106,19 +106,19 @@ def find_last_turn(msgs: list) -> tuple:
     return user_text, user_uuid, asst_text, last_a_uuid, had_prose
 
 
-def _load_state() -> dict:
-    if not STATE_PATH.exists():
+def _load_state(state_path) -> dict:
+    if not state_path.exists():
         return {}
     try:
-        return json.loads(STATE_PATH.read_text())
+        return json.loads(state_path.read_text())
     except Exception:
         return {}
 
 
-def _save_state(d: dict) -> None:
+def _save_state(state_path, d: dict) -> None:
     try:
-        STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        STATE_PATH.write_text(json.dumps(d))
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(json.dumps(d))
     except Exception:
         pass
 
@@ -142,7 +142,10 @@ def persist_last_turn(
     user_text = user_text[:8000]
     asst_text = asst_text[:12000]
 
-    mem = Memory()
+    data_dir = resolve_data_dir(cwd)
+    state_path = paths_for(data_dir)["state_path"]
+
+    mem = Memory(data_dir=data_dir)
     try:
         mem.ensure_session(session_id, cwd)
         _, action = mem.upsert_turn(session_id, user_uuid, user_text, asst_text, cwd)
@@ -150,7 +153,7 @@ def persist_last_turn(
         mem.close()
 
     if action in ("insert", "update"):
-        state = _load_state()
+        state = _load_state(state_path)
         state[session_id] = a_uuid
-        _save_state(state)
+        _save_state(state_path, state)
     return action

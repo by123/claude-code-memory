@@ -1,17 +1,30 @@
-"""Centralized paths and environment loading for claude-memory."""
+"""Centralized paths and environment loading for claude-memory.
+
+Supports two storage scopes:
+  - global: ~/.claude/claude-memory/ (default, also overridable via CLAUDE_MEMORY_DIR)
+  - project: <project_root>/.claude-memory/ when walked-up from cwd
+
+`resolve_data_dir(cwd)` picks project if a marker dir is present, else global.
+"""
 import os
 from pathlib import Path
+from typing import Optional, Union
 
 from dotenv import load_dotenv
 
-DATA_DIR = Path(
+PROJECT_MARKER = ".claude-memory"
+
+GLOBAL_DATA_DIR = Path(
     os.environ.get(
         "CLAUDE_MEMORY_DIR",
         os.path.expanduser("~/.claude/claude-memory"),
     )
 )
-ENV_FILE = DATA_DIR / ".env"
-DB_DIR = DATA_DIR / "db"
+
+# Backward-compatible aliases — point to the global store.
+DATA_DIR = GLOBAL_DATA_DIR
+ENV_FILE = GLOBAL_DATA_DIR / ".env"
+DB_DIR = GLOBAL_DATA_DIR / "db"
 DB_PATH = DB_DIR / "memory.db"
 CHROMA_DIR = DB_DIR / "chroma"
 LOG_PATH = DB_DIR / "hook.log"
@@ -20,12 +33,68 @@ STATE_PATH = DB_DIR / "last_turn.json"
 CLAUDE_SETTINGS_PATH = Path(os.path.expanduser("~/.claude/settings.json"))
 
 
-def load_env() -> None:
-    """Load DATA_DIR/.env into os.environ if present (idempotent)."""
-    if ENV_FILE.exists():
-        load_dotenv(ENV_FILE, override=False)
+def paths_for(data_dir: Path) -> dict:
+    """Derive all per-store paths from a base data directory."""
+    db_dir = data_dir / "db"
+    return {
+        "data_dir": data_dir,
+        "env_file": data_dir / ".env",
+        "db_dir": db_dir,
+        "db_path": db_dir / "memory.db",
+        "chroma_dir": db_dir / "chroma",
+        "log_path": db_dir / "hook.log",
+        "state_path": db_dir / "last_turn.json",
+    }
 
 
-def ensure_dirs() -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    DB_DIR.mkdir(parents=True, exist_ok=True)
+def find_project_root(cwd: Optional[Union[str, os.PathLike]] = None) -> Optional[Path]:
+    """Walk up from `cwd` looking for a `.claude-memory/` directory.
+
+    Returns the marker directory path if found, else None. The user's $HOME is
+    skipped to prevent an accidental marker there from globalising the project
+    scope across the whole machine.
+    """
+    if not cwd:
+        return None
+    try:
+        start = Path(cwd).expanduser().resolve()
+    except Exception:
+        return None
+    home = Path.home().resolve()
+
+    cur = start if start.is_dir() else start.parent
+    while True:
+        if cur != home:
+            cand = cur / PROJECT_MARKER
+            if cand.is_dir():
+                return cand
+        if cur == cur.parent:
+            return None
+        cur = cur.parent
+
+
+def resolve_data_dir(cwd: Optional[Union[str, os.PathLike]] = None) -> Path:
+    """Return the data dir to use given a cwd: project marker if found, else global."""
+    proj = find_project_root(cwd)
+    return proj if proj is not None else GLOBAL_DATA_DIR
+
+
+def load_env(data_dir: Optional[Path] = None) -> None:
+    """Load .env from the given data_dir into os.environ.
+
+    When `data_dir` is a project store, the global .env is also loaded as a
+    fallback so a single VOYAGE_API_KEY in the global store works everywhere.
+    """
+    target = (data_dir or GLOBAL_DATA_DIR) / ".env"
+    if target.exists():
+        load_dotenv(target, override=False)
+    if data_dir is not None and data_dir != GLOBAL_DATA_DIR:
+        global_env = GLOBAL_DATA_DIR / ".env"
+        if global_env.exists():
+            load_dotenv(global_env, override=False)
+
+
+def ensure_dirs(data_dir: Optional[Path] = None) -> None:
+    target = data_dir or GLOBAL_DATA_DIR
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "db").mkdir(parents=True, exist_ok=True)

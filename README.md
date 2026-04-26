@@ -108,11 +108,13 @@ rm -rf ~/.claude/claude-memory     # delete all your stored data (irreversible)
 
 ## Roadmap
 
-- [ ] **Project-level / global dual-layer storage**
-  Global by default; auto-switch to project-level when a `.claude-memory/`
-  marker (or config) is present in the working directory, so histories from
-  different projects don't bleed into each other. Search supports
-  "project only / global only / merged" modes.
+- [x] **Project-level / global dual-layer storage**
+  Global by default; auto-switches to project-level when a `.claude-memory/`
+  marker is found by walking up from cwd, so histories from different
+  projects don't bleed into each other. Run `claude-memory init-project`
+  in a project root to create the marker. Search supports
+  `scope=auto|project|global|merged` (hooks via `CLAUDE_MEMORY_SCOPE` env;
+  MCP tools accept a `scope` argument).
 
 - [ ] **Multi-CLI client support**
   Extend beyond Claude Code to **Cursor CLI, Codex CLI, Gemini CLI**. Provide

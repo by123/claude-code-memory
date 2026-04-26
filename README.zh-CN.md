@@ -103,8 +103,8 @@ rm -rf ~/.claude/claude-memory     # 删除所有存储的数据（不可逆）
 
 ## Roadmap
 
-- [ ] **项目级 / 全局双层存储**
-  默认全局共享，进入项目目录后自动切换到项目级（通过 `.claude-memory/` 标记或配置项指定），避免不同项目的历史互相污染。检索时支持"仅本项目 / 仅全局 / 合并"三种模式。
+- [x] **项目级 / 全局双层存储**
+  默认全局共享，进入含 `.claude-memory/` 标记的项目目录后自动切换到项目级，避免不同项目的历史互相污染。在项目根目录运行 `claude-memory init-project` 创建标记。检索支持 `scope=auto|project|global|merged`（hooks 通过 `CLAUDE_MEMORY_SCOPE` 环境变量切换；MCP 工具直接传 `scope` 参数）。
 
 - [ ] **多 CLI 客户端支持**
   在现有 Claude Code 基础上扩展到 **Cursor CLI、Codex CLI、Gemini CLI**，提供 `claude-memory install --client <name>` 一键写入 MCP 配置，并附带强制召回的 rules 模板，确保各客户端都能稳定触发记忆查询。

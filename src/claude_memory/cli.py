@@ -14,8 +14,12 @@ from .config import (
     DB_PATH,
     ENV_FILE,
     LOG_PATH,
+    PROJECT_MARKER,
     ensure_dirs,
+    find_project_root,
     load_env,
+    paths_for,
+    resolve_data_dir,
 )
 
 HOOK_COMMANDS = {
@@ -234,9 +238,19 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
 
 def cmd_status(args: argparse.Namespace) -> int:
     print(f"claude-memory v{__version__}")
-    print(f"  data dir       : {DATA_DIR}  (exists={DATA_DIR.exists()})")
+    cwd = Path.cwd()
+    proj = find_project_root(cwd)
+    active = resolve_data_dir(cwd)
+    active_paths = paths_for(active)
+    scope = "project" if proj else "global"
+
+    print(f"  cwd            : {cwd}")
+    print(f"  scope          : {scope}  (active dir: {active})")
+    if proj:
+        print(f"  project marker : {proj}")
+    print(f"  global data    : {DATA_DIR}  (exists={DATA_DIR.exists()})")
     print(f"  env file       : {ENV_FILE}  (exists={ENV_FILE.exists()})")
-    print(f"  database       : {DB_PATH}  (exists={DB_PATH.exists()})")
+    print(f"  database       : {active_paths['db_path']}  (exists={active_paths['db_path'].exists()})")
     print(f"  hook log       : {LOG_PATH}")
     print(f"  settings.json  : {CLAUDE_SETTINGS_PATH}  (exists={CLAUDE_SETTINGS_PATH.exists()})")
 
@@ -256,19 +270,48 @@ def cmd_status(args: argparse.Namespace) -> int:
             present = any(_hook_block_has_command(b, command) for b in blocks)
             print(f"    {event:<18} {'✓' if present else '✗'}  {command}")
 
-    if DB_PATH.exists() and have_key:
+    if active_paths["db_path"].exists() and have_key:
         try:
             from .storage import Memory
-            mem = Memory()
+            mem = Memory(data_dir=active)
             try:
                 stats = mem.stats()
             finally:
                 mem.close()
-            print("  stats:")
+            print(f"  stats ({scope}):")
             for k, v in stats.items():
                 print(f"    {k:<20} {v}")
         except Exception as e:
             _print_warn(f"Could not read stats: {e}")
+    return 0
+
+
+def cmd_init_project(args: argparse.Namespace) -> int:
+    target = Path(args.path).expanduser().resolve() if args.path else Path.cwd()
+    if not target.exists():
+        _print_err(f"Path does not exist: {target}")
+        return 1
+    if not target.is_dir():
+        _print_err(f"Path is not a directory: {target}")
+        return 1
+
+    marker = target / PROJECT_MARKER
+    if marker.exists():
+        _print_warn(f"Project store already initialised at {marker}")
+    else:
+        marker.mkdir(parents=True)
+        _print_ok(f"Created {marker}")
+
+    (marker / "db").mkdir(parents=True, exist_ok=True)
+
+    gitignore = marker / ".gitignore"
+    if not gitignore.exists():
+        gitignore.write_text("*\n!.gitignore\n")
+        _print_ok(f"Wrote {gitignore} (project memory is git-ignored by default)")
+
+    print()
+    print(f"Project memory will live in: {marker}")
+    print("Run inside this directory:  claude-memory status")
     return 0
 
 
@@ -346,6 +389,13 @@ def main() -> None:
 
     sp = sub.add_parser("uninstall", help="Remove hooks from ~/.claude/settings.json")
     sp.set_defaults(func=cmd_uninstall)
+
+    sp = sub.add_parser(
+        "init-project",
+        help="Create a project-scoped memory store (.claude-memory/) in this directory",
+    )
+    sp.add_argument("path", nargs="?", default=None, help="Project root (default: cwd)")
+    sp.set_defaults(func=cmd_init_project)
 
     sp = sub.add_parser("status", help="Show installation status and stats")
     sp.set_defaults(func=cmd_status)
