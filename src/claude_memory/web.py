@@ -100,7 +100,8 @@ def create_app() -> FastAPI:
                 if ids:
                     placeholders = ",".join("?" for _ in ids)
                     rows = mem.db.execute(
-                        f"SELECT id, session_id, ts, cwd, user_msg, assistant_msg "
+                        f"SELECT id, session_id, ts, cwd, user_msg, assistant_msg, "
+                        f"summary, summary_model, summary_ts "
                         f"FROM turns WHERE id IN ({placeholders})",
                         ids,
                     ).fetchall()
@@ -198,6 +199,26 @@ def create_app() -> FastAPI:
         if not ok:
             raise HTTPException(status_code=404, detail="tag not on turn")
         return {"ok": True}
+
+    @app.post("/api/turns/{scope}/{turn_id}/summary")
+    def regenerate_summary(scope: str, turn_id: str) -> dict:
+        from .summarizer import is_enabled, model_name, summarize
+
+        if not is_enabled():
+            raise HTTPException(status_code=400, detail="summarizer disabled (SUMMARY_ENABLED=0)")
+        with _memory_for(scope) as mem:
+            t = mem.get_turn(turn_id)
+            if t is None:
+                raise HTTPException(status_code=404, detail="turn not found")
+            summary = summarize(t["user_msg"], t["assistant_msg"])
+            if not summary:
+                raise HTTPException(status_code=502, detail="summarizer failed (check ANTHROPIC_API_KEY)")
+            mem.set_summary(turn_id, summary, model=model_name())
+            return {
+                "ok": True,
+                "summary": summary,
+                "summary_model": model_name(),
+            }
 
     @app.get("/api/tags")
     def get_tags(scope: str = "global") -> list[dict]:

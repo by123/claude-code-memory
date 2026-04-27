@@ -43,6 +43,29 @@ export function TurnCard({ turn, scope, onDelete, onAddTag, onRemoveTag }: Props
   const [showRetrievals, setShowRetrievals] = useState(false);
   const [retrievals, setRetrievals] = useState<TurnRetrievalsResponse | null>(null);
   const [retrErr, setRetrErr] = useState<string | null>(null);
+  const [summary, setSummary] = useState<string | null>(turn.summary ?? null);
+  const [summaryModel, setSummaryModel] = useState<string | null>(turn.summary_model ?? null);
+  const [summaryBusy, setSummaryBusy] = useState(false);
+  const [summaryErr, setSummaryErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSummary(turn.summary ?? null);
+    setSummaryModel(turn.summary_model ?? null);
+  }, [turn.id, turn.summary, turn.summary_model]);
+
+  const regenerate = async () => {
+    setSummaryBusy(true);
+    setSummaryErr(null);
+    try {
+      const r = await api.regenerateSummary(scope, turn.id);
+      setSummary(r.summary);
+      setSummaryModel(r.summary_model);
+    } catch (e) {
+      setSummaryErr(String(e));
+    } finally {
+      setSummaryBusy(false);
+    }
+  };
 
   useEffect(() => {
     if (!showRetrievals || retrievals !== null) return;
@@ -95,6 +118,28 @@ export function TurnCard({ turn, scope, onDelete, onAddTag, onRemoveTag }: Props
         <button className="danger" onClick={onDelete}>
           delete
         </button>
+      </div>
+
+      <div className={`summary-block${summary ? "" : " empty"}`}>
+        <div className="summary-head">
+          <span className="summary-tag">摘要</span>
+          {summaryModel && <span className="summary-model">{summaryModel}</span>}
+          <span className="summary-spacer" />
+          <button
+            className="link"
+            onClick={regenerate}
+            disabled={summaryBusy}
+            title="调用 Haiku 重新生成摘要"
+          >
+            {summaryBusy ? "生成中…" : summary ? "重新生成" : "生成摘要"}
+          </button>
+        </div>
+        {summaryErr && <div className="error">{summaryErr}</div>}
+        {summary ? (
+          <Markdown text={summary} />
+        ) : (
+          <div className="empty">暂无摘要（可点击"生成摘要"调用 Haiku 生成）</div>
+        )}
       </div>
 
       <div className="msg msg-user">

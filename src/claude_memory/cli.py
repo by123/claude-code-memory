@@ -166,7 +166,10 @@ def _ensure_env_file() -> bool:
             existing["VOYAGE_API_KEY"] = key
 
     existing.setdefault("TOP_K", "5")
-    existing.setdefault("MIN_SCORE", "0.3")
+    existing.setdefault("MIN_SCORE", "0.7")
+    existing.setdefault("SUMMARY_ENABLED", "1")
+    existing.setdefault("SUMMARY_MODEL", "claude-haiku-4-5-20251001")
+    existing.setdefault("SUMMARY_BACKEND", "auto")
 
     lines = [f"{k}={v}" for k, v in existing.items()]
     ENV_FILE.write_text("\n".join(lines) + "\n")

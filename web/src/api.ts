@@ -74,4 +74,10 @@ export const api = {
 
   topReferenced: (scope: Scope, limit = 10) =>
     jsonFetch<TopReferencedResponse>(`/api/top-referenced?scope=${scope}&limit=${limit}`),
+
+  regenerateSummary: (scope: Scope, id: string) =>
+    jsonFetch<{ ok: true; summary: string; summary_model: string }>(
+      `/api/turns/${scope}/${id}/summary`,
+      { method: "POST" },
+    ),
 };

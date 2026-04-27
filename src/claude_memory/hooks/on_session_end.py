@@ -35,6 +35,8 @@ def _summarize(conversation: str) -> str:
 
 
 def _main() -> int:
+    if os.environ.get("CLAUDE_MEMORY_NO_HOOK"):
+        return 0
     try:
         data = json.load(sys.stdin)
     except Exception:

@@ -19,15 +19,16 @@ Claude   : 结合你有蛋蛋（金色边牧）这个大运动量的伙伴，可
 
 | Hook                | 作用                                                  |
 | ------------------- | ----------------------------------------------------- |
-| `UserPromptSubmit`  | 把你的 prompt 向量化，注入最相似的 K 条历史对话       |
-| `Stop`              | 把本轮 user/assistant 对话存入 SQLite + Chroma        |
+| `UserPromptSubmit`  | 把你的 prompt 向量化，注入最相似的 K 条历史对话；命中的 turn 若已有 Haiku 摘要，注入的是**摘要**而不是原文 |
+| `Stop`              | 把本轮 user/assistant 对话存入 SQLite + Chroma，并 **detached fork** 一个后台进程让 Haiku 生成本轮摘要（默认走 `claude -p`，无需额外 API Key） |
 | `SessionEnd`        | 让 Claude Haiku 给整段会话生成一份粗粒度摘要          |
 
 存储方式：
 
-- **SQLite** — 原始对话与摘要的真实数据源
-- **Chroma** — 本地向量索引
+- **SQLite** — 原始对话、每轮 Haiku 摘要、会话级摘要的真实数据源
+- **Chroma** — 本地向量索引（turns + 摘要）
 - **Voyage AI** (`voyage-3`) — 文本向量化服务
+- **Claude Haiku** (`claude-haiku-4-5-20251001`) — 每轮摘要，默认通过 `claude -p` 复用你已经登录的 Claude Code 鉴权
 
 ## 安装
 
@@ -40,8 +41,10 @@ claude-memory init
 
 1. 创建数据目录 `~/.claude/claude-memory/`
 2. 提示你输入 `VOYAGE_API_KEY`（免费申请：https://www.voyageai.com/）
-3. 备份现有的 `~/.claude/settings.json`，注入三个 hook
-4. 打印验证步骤
+3. 写入默认配置：`MIN_SCORE=0.7`、`SUMMARY_ENABLED=1`、
+   `SUMMARY_MODEL=claude-haiku-4-5-20251001`、`SUMMARY_BACKEND=auto`
+4. 备份现有的 `~/.claude/settings.json`，注入三个 hook
+5. 打印验证步骤
 
 然后开一个新的 Claude Code 会话，聊几轮后跑：
 
@@ -91,6 +94,7 @@ claude-memory uninstall      卸载 hooks 与 slash 命令（保留数据）
 - **关键字**（SQL `LIKE`）或 **语义** 搜索（基于 Voyage 向量）
 - 给单条 turn 打标签（如 `#work`、`#personal`），并按标签过滤
 - 删除单条 turn（同时清掉 Chroma 里的向量）
+- 每条 turn 顶部显示 **Haiku 摘要**，可一键"重新生成"
 
 ### 使用方式
 
@@ -117,6 +121,7 @@ UI 上的操作直接落库：
 | **移除标签** | 删 `turn_tags`；如果该标签没人用了，再清 `tags` 里的孤立行            |
 | **关键字搜索**| SQL `LIKE` 直查 `user_msg` / `assistant_msg`，不调用 embedding 接口 |
 | **语义搜索** | 调一次 Voyage 算 query 向量，再从 Chroma 取 top-K                     |
+| **重新生成摘要** | 调一次 `claude -p`（Haiku），把 `summary` / `summary_model` / `summary_ts` 写回 `turns`            |
 
 服务只监听 `127.0.0.1`，按 `Ctrl+C` 关闭。
 
@@ -144,7 +149,12 @@ claude-memory init-project
 | ------------------------------- | ----------------------------------- | --------------------------------- |
 | `VOYAGE_API_KEY`                | —                                   | 必填，向量化用                    |
 | `TOP_K`                         | `5`                                 | 每次注入的最多记忆条数            |
-| `MIN_SCORE`                     | `0.3`                               | 相似度下限（0–1）                 |
+| `MIN_SCORE`                     | `0.7`                               | 相似度下限（0–1）                 |
+| `SUMMARY_ENABLED`               | `1`                                 | 设为 `0`/`false` 关闭每轮 Haiku 摘要 |
+| `SUMMARY_MODEL`                 | `claude-haiku-4-5-20251001`         | 每轮摘要用的模型                  |
+| `SUMMARY_BACKEND`               | `auto`                              | `auto`：PATH 上有 `claude` 时走 CLI，否则走 SDK；可强制 `cli` 或 `sdk` |
+| `SUMMARY_TIMEOUT`               | `60`                                | `claude -p` 子进程超时秒数        |
+| `ANTHROPIC_API_KEY`             | —                                   | 仅当 `SUMMARY_BACKEND=sdk` 时需要；CLI 后端复用 `claude` 自身鉴权 |
 | `CLAUDE_MEMORY_DIR`             | `~/.claude/claude-memory`           | SQLite + Chroma 数据目录          |
 | `CLAUDE_MEMORY_SUMMARY_MODEL`   | `claude-haiku-4-5-20251001`         | `SessionEnd` 摘要用的模型         |
 
@@ -175,8 +185,10 @@ rm -rf ~/.claude/claude-memory            # 直接 rm（不可逆）
 ## 隐私说明
 
 - 所有数据保存在你本机的 `~/.claude/claude-memory/`
-- 唯一的外部请求是发给 **Voyage AI**（embedding，包含你的 prompt 文本）和
-  **Anthropic**（生成会话摘要）
+- 外部请求：**Voyage AI**（embedding，包含你的 prompt 文本）；**Anthropic**
+  Haiku 用于每轮摘要（默认走你已登录的 `claude` CLI，无需另配 key）和
+  `SessionEnd` 会话级总结
+- 不想让每轮内容被发去做摘要的话，设 `SUMMARY_ENABLED=0`
 - 想加密静态数据的话，把 `CLAUDE_MEMORY_DIR` 指向一个加密卷即可
 
 ## Roadmap

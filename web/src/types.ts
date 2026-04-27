@@ -11,6 +11,9 @@ export interface Turn {
   tags: string[];
   score?: number | null;
   retrieval_count?: number;
+  summary?: string | null;
+  summary_model?: string | null;
+  summary_ts?: number | null;
 }
 
 export interface RetrievalSummary {

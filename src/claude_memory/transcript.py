@@ -148,9 +148,17 @@ def persist_last_turn(
     mem = Memory(data_dir=data_dir)
     try:
         mem.ensure_session(session_id, cwd)
-        _, action = mem.upsert_turn(session_id, user_uuid, user_text, asst_text, cwd)
+        turn_id, action = mem.upsert_turn(session_id, user_uuid, user_text, asst_text, cwd)
     finally:
         mem.close()
+
+    if action in ("insert", "update"):
+        try:
+            from .summarizer import spawn_background
+
+            spawn_background(str(data_dir), turn_id)
+        except Exception:
+            pass
 
     if action in ("insert", "update"):
         state = _load_state(state_path)

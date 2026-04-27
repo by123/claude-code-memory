@@ -23,15 +23,16 @@ a small Python service:
 
 | Hook              | What it does                                                              |
 | ----------------- | ------------------------------------------------------------------------- |
-| `UserPromptSubmit` | Embeds your prompt and injects the top-K most similar prior turns.        |
-| `Stop`             | Persists the current user/assistant turn into SQLite + Chroma.            |
-| `SessionEnd`       | Asks Claude Haiku to produce a coarse summary of the session.             |
+| `UserPromptSubmit` | Embeds your prompt and injects the top-K most similar prior turns. When a turn has a Haiku-generated summary, the **summary** is injected instead of the raw prose. |
+| `Stop`             | Persists the current user/assistant turn into SQLite + Chroma, then spawns a detached background process that asks Haiku to summarize the turn (no extra API key needed — reuses your `claude` CLI session). |
+| `SessionEnd`       | Asks Claude Haiku to produce a coarse summary of the whole session.       |
 
 Storage:
 
-- **SQLite** — source of truth for raw turns and summaries
-- **Chroma** — local vector index over both
+- **SQLite** — source of truth for raw turns, per-turn Haiku summaries, and session summaries
+- **Chroma** — local vector index over turns + summaries
 - **Voyage AI** (`voyage-3`) — embeddings
+- **Claude Haiku** (`claude-haiku-4-5-20251001`) — per-turn summarization, called via `claude -p` so no extra `ANTHROPIC_API_KEY` is required
 
 ## Install
 
@@ -44,8 +45,12 @@ claude-memory init
 
 1. Create `~/.claude/claude-memory/` (data directory)
 2. Prompt for your `VOYAGE_API_KEY` (get one free at https://www.voyageai.com/)
-3. Back up your existing `~/.claude/settings.json` and add the three hooks
-4. Print verification steps
+3. Write the default `.env` (`MIN_SCORE=0.7`, `SUMMARY_ENABLED=1`,
+   `SUMMARY_MODEL=claude-haiku-4-5-20251001`, `SUMMARY_BACKEND=auto`) — the
+   per-turn Haiku summarizer reuses your existing `claude` CLI session, so
+   no extra `ANTHROPIC_API_KEY` is required by default
+4. Back up your existing `~/.claude/settings.json` and add the three hooks
+5. Print verification steps
 
 Then open a fresh Claude Code session, chat for a few turns, and run:
 
@@ -97,6 +102,7 @@ in your browser and lets you:
 - Search by **keyword** (SQL `LIKE`) or **semantic** similarity (Voyage embeddings)
 - Tag turns (e.g. `#work`, `#personal`) and filter by tag
 - Delete a single turn (also clears its embedding from Chroma)
+- See the per-turn **Haiku summary** above each turn, with a one-click button to (re)generate it on demand
 
 ### Usage
 
@@ -121,6 +127,7 @@ claude-memory web --no-open
 | **Remove a tag**     | Row removed from `turn_tags`; orphaned tag is GC'd from `tags`              |
 | **Search (keyword)** | SQL `LIKE` over `user_msg` and `assistant_msg` — no embedding call          |
 | **Search (semantic)**| One Voyage embedding per query, then top-K from Chroma                      |
+| **Regenerate summary** | One `claude -p` call (Haiku); writes `summary` / `summary_model` / `summary_ts` back into the `turns` row |
 
 The server only binds to `127.0.0.1`. Press `Ctrl+C` to stop it.
 
@@ -150,7 +157,12 @@ All optional, set in `~/.claude/claude-memory/.env`:
 | ------------------------------ | ------------------------------------ | ------------------------------------------ |
 | `VOYAGE_API_KEY`               | —                                    | Required for embeddings                    |
 | `TOP_K`                        | `5`                                  | Max memories injected per prompt           |
-| `MIN_SCORE`                    | `0.3`                                | Cosine similarity floor (0–1)              |
+| `MIN_SCORE`                    | `0.7`                                | Cosine similarity floor (0–1)              |
+| `SUMMARY_ENABLED`              | `1`                                  | Set `0`/`false` to disable per-turn Haiku summarization |
+| `SUMMARY_MODEL`                | `claude-haiku-4-5-20251001`          | Model used for per-turn summaries          |
+| `SUMMARY_BACKEND`              | `auto`                               | `auto` → CLI when `claude` is on PATH, else SDK; force with `cli` or `sdk` |
+| `SUMMARY_TIMEOUT`              | `60`                                 | Seconds before the `claude -p` subprocess is killed |
+| `ANTHROPIC_API_KEY`            | —                                    | Only needed when `SUMMARY_BACKEND=sdk` (CLI backend reuses your existing `claude` auth) |
 | `CLAUDE_MEMORY_DIR`            | `~/.claude/claude-memory`            | Where SQLite + Chroma live                 |
 | `CLAUDE_MEMORY_SUMMARY_MODEL`  | `claude-haiku-4-5-20251001`          | Model used by `SessionEnd`                 |
 
@@ -181,8 +193,10 @@ rm -rf ~/.claude/claude-memory            # nuke directly (irreversible)
 ## Privacy
 
 - All data stays on your machine in `~/.claude/claude-memory/`.
-- The only outbound call is to **Voyage AI** for embeddings (your prompt text)
-  and **Anthropic** for end-of-session summaries.
+- Outbound calls: **Voyage AI** for embeddings (your prompt text), **Anthropic**
+  for per-turn Haiku summaries (default; goes through your existing `claude`
+  CLI session — no extra key) and end-of-session summaries.
+- Set `SUMMARY_ENABLED=0` if you don't want per-turn summaries to leave the box.
 - Set `CLAUDE_MEMORY_DIR` to encrypt at rest with whatever filesystem-level
   encryption your OS provides.
 

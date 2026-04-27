@@ -25,7 +25,10 @@ CREATE TABLE IF NOT EXISTS turns (
     cwd TEXT,
     user_msg TEXT NOT NULL,
     assistant_msg TEXT NOT NULL,
-    user_uuid TEXT
+    user_uuid TEXT,
+    summary TEXT,
+    summary_model TEXT,
+    summary_ts REAL
 );
 CREATE TABLE IF NOT EXISTS summaries (
     id TEXT PRIMARY KEY,
@@ -87,6 +90,12 @@ class Memory:
         cols = {r[1] for r in self.db.execute("PRAGMA table_info(turns)")}
         if "user_uuid" not in cols:
             self.db.execute("ALTER TABLE turns ADD COLUMN user_uuid TEXT")
+        if "summary" not in cols:
+            self.db.execute("ALTER TABLE turns ADD COLUMN summary TEXT")
+        if "summary_model" not in cols:
+            self.db.execute("ALTER TABLE turns ADD COLUMN summary_model TEXT")
+        if "summary_ts" not in cols:
+            self.db.execute("ALTER TABLE turns ADD COLUMN summary_ts REAL")
         self.db.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_turns_user_uuid "
             "ON turns(session_id, user_uuid) WHERE user_uuid IS NOT NULL"
@@ -254,7 +263,20 @@ class Memory:
             _pull(self.summaries, "summary")
 
         out.sort(key=lambda x: x["score"], reverse=True)
-        return out[:top_k]
+        out = out[:top_k]
+
+        turn_ids = [r["id"] for r in out if r["kind"] == "turn"]
+        if turn_ids:
+            placeholders = ",".join("?" for _ in turn_ids)
+            rows = self.db.execute(
+                f"SELECT id, summary FROM turns WHERE id IN ({placeholders})",
+                turn_ids,
+            ).fetchall()
+            sm = {r["id"]: r["summary"] for r in rows}
+            for r in out:
+                if r["kind"] == "turn":
+                    r["summary"] = sm.get(r["id"])
+        return out
 
     # ---------- admin ----------
     def stats(self) -> Dict[str, int]:
@@ -271,10 +293,27 @@ class Memory:
 
     def list_recent(self, limit: int = 10) -> List[Dict[str, Any]]:
         rows = self.db.execute(
-            "SELECT id, session_id, ts, user_msg, assistant_msg FROM turns ORDER BY ts DESC LIMIT ?",
+            "SELECT id, session_id, ts, user_msg, assistant_msg, summary, summary_model, summary_ts "
+            "FROM turns ORDER BY ts DESC LIMIT ?",
             (limit,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def set_summary(self, turn_id: str, summary: str, model: Optional[str] = None) -> bool:
+        cur = self.db.execute(
+            "UPDATE turns SET summary = ?, summary_model = ?, summary_ts = ? WHERE id = ?",
+            (summary, model, time.time(), turn_id),
+        )
+        self.db.commit()
+        return cur.rowcount > 0
+
+    def get_turn(self, turn_id: str) -> Optional[Dict[str, Any]]:
+        row = self.db.execute(
+            "SELECT id, session_id, ts, cwd, user_msg, assistant_msg, summary, summary_model, summary_ts "
+            "FROM turns WHERE id = ?",
+            (turn_id,),
+        ).fetchone()
+        return dict(row) if row else None
 
     # ---------- browser-style listing & tags ----------
     def _attach_tags(self, turns: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -301,7 +340,8 @@ class Memory:
         tag: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         sql = (
-            "SELECT t.id, t.session_id, t.ts, t.cwd, t.user_msg, t.assistant_msg "
+            "SELECT t.id, t.session_id, t.ts, t.cwd, t.user_msg, t.assistant_msg, "
+            "t.summary, t.summary_model, t.summary_ts "
             "FROM turns t"
         )
         params: list = []
@@ -510,6 +550,7 @@ class Memory:
     def top_referenced_turns(self, limit: int = 10) -> List[Dict[str, Any]]:
         rows = self.db.execute(
             "SELECT t.id, t.session_id, t.ts, t.cwd, t.user_msg, t.assistant_msg, "
+            "t.summary, t.summary_model, t.summary_ts, "
             "COUNT(h.retrieval_id) AS retrieval_count "
             "FROM turns t JOIN retrieval_hits h ON h.turn_id = t.id "
             "GROUP BY t.id "
@@ -537,7 +578,8 @@ class Memory:
             return {}
         placeholders = ",".join("?" for _ in turn_ids)
         rows = self.db.execute(
-            f"SELECT id, session_id, ts, cwd, user_msg, assistant_msg "
+            f"SELECT id, session_id, ts, cwd, user_msg, assistant_msg, "
+            f"summary, summary_model, summary_ts "
             f"FROM turns WHERE id IN ({placeholders})",
             turn_ids,
         ).fetchall()

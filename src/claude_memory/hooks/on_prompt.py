@@ -12,6 +12,8 @@ from ._log import log
 
 
 def _main() -> int:
+    if os.environ.get("CLAUDE_MEMORY_NO_HOOK"):
+        return 0
     try:
         data = json.load(sys.stdin)
     except Exception:
@@ -39,7 +41,7 @@ def _main() -> int:
         load_env(resolve_data_dir(cwd))
 
         top_k = int(os.environ.get("TOP_K", 5))
-        min_score = float(os.environ.get("MIN_SCORE", 0.3))
+        min_score = float(os.environ.get("MIN_SCORE", 0.7))
         scope = os.environ.get("CLAUDE_MEMORY_SCOPE", "auto")
         results = search_scoped(
             prompt, cwd=cwd, scope=scope, top_k=top_k, min_score=min_score
@@ -79,10 +81,15 @@ def _main() -> int:
         score = f"{r['score']:.2f}"
         kind = r["kind"]
         sc = r.get("scope", "")
-        tag = f"{kind}" + (f" · {sc}" if sc else "")
-        text = r["text"]
-        if len(text) > 800:
-            text = text[:800] + "…"
+        summary = r.get("summary")
+        if summary:
+            tag = f"{kind}" + (f" · {sc}" if sc else "") + " · summary"
+            text = summary
+        else:
+            tag = f"{kind}" + (f" · {sc}" if sc else "")
+            text = r["text"]
+        if len(text) > 1200:
+            text = text[:1200] + "…"
         lines.append(f"\n[{tag} · score={score}]\n{text}")
     lines.append("</memory>")
     sys.stdout.write("\n".join(lines) + "\n")

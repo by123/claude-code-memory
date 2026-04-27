@@ -1205,3 +1205,35 @@ button { font-family: inherit; }
 .content::-webkit-scrollbar-thumb:hover {
   background: var(--border-strong);
 }
+
+/* summary block */
+.summary-block {
+  margin: 10px 0 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+.summary-block.empty {
+  border-left-color: var(--border-strong);
+  opacity: 0.85;
+}
+.summary-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+.summary-tag {
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.04em;
+}
+.summary-model {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+.summary-spacer { flex: 1; }
