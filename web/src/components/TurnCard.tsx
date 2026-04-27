@@ -1,4 +1,6 @@
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { Turn } from "../types";
 
 interface Props {
@@ -14,6 +16,23 @@ function fmtTs(ts: number): string {
   } catch {
     return String(ts);
   }
+}
+
+function Markdown({ text }: { text: string }) {
+  return (
+    <div className="md">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          a: ({ node, ...props }) => (
+            <a {...props} target="_blank" rel="noreferrer noopener" />
+          ),
+        }}
+      >
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
 }
 
 export function TurnCard({ turn, onDelete, onAddTag, onRemoveTag }: Props) {
@@ -52,13 +71,19 @@ export function TurnCard({ turn, onDelete, onAddTag, onRemoveTag }: Props) {
         </button>
       </div>
 
-      <div className="msg">
-        <div className="role">User</div>
-        <pre>{userPreview}</pre>
+      <div className="msg msg-user">
+        <div className="avatar" aria-hidden>U</div>
+        <div className="bubble">
+          <div className="bubble-head">User</div>
+          <Markdown text={userPreview} />
+        </div>
       </div>
-      <div className="msg">
-        <div className="role">Assistant</div>
-        <pre>{asstPreview}</pre>
+      <div className="msg msg-assistant">
+        <div className="avatar" aria-hidden>✦</div>
+        <div className="bubble">
+          <div className="bubble-head">Assistant</div>
+          <Markdown text={asstPreview} />
+        </div>
       </div>
 
       {truncated && (

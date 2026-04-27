@@ -18,6 +18,23 @@ export default function App() {
   const [tags, setTags] = useState<TagInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    const stored = typeof localStorage !== "undefined" ? localStorage.getItem("cm-theme") : null;
+    if (stored === "light" || stored === "dark") return stored;
+    if (typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: light)").matches) {
+      return "light";
+    }
+    return "dark";
+  });
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try {
+      localStorage.setItem("cm-theme", theme);
+    } catch {
+      /* ignore */
+    }
+  }, [theme]);
 
   // Initial scope discovery.
   useEffect(() => {
@@ -163,6 +180,14 @@ export default function App() {
             global
           </button>
         </div>
+
+        <button
+          className="theme-toggle"
+          onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+          title={theme === "dark" ? "switch to light mode" : "switch to dark mode"}
+        >
+          {theme === "dark" ? "☀️ light" : "🌙 dark"}
+        </button>
       </header>
 
       <div className="main">
