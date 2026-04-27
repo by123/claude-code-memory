@@ -51,6 +51,29 @@ def _main() -> int:
     if not results:
         return 0
 
+    try:
+        from ..config import GLOBAL_DATA_DIR, find_project_root
+        from ..storage import Memory
+
+        proj_dir = find_project_root(cwd) if cwd else None
+        any_project_hit = any(r.get("scope") == "project" for r in results)
+        target_dir = proj_dir if (proj_dir is not None and any_project_hit) else GLOBAL_DATA_DIR
+        scope_used = "project" if target_dir == proj_dir else "global"
+
+        m = Memory(data_dir=target_dir)
+        try:
+            m.record_retrieval(
+                prompt=prompt,
+                hits=results,
+                session_id=session_id,
+                cwd=cwd,
+                scope_used=scope_used,
+            )
+        finally:
+            m.close()
+    except Exception as e:
+        log(f"[on_prompt] record_retrieval ERROR: {e}\n{traceback.format_exc()}")
+
     lines = ["<memory>", "Relevant context from prior conversations (auto-retrieved):"]
     for r in results:
         score = f"{r['score']:.2f}"

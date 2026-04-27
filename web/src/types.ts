@@ -10,12 +10,50 @@ export interface Turn {
   assistant_msg: string;
   tags: string[];
   score?: number | null;
+  retrieval_count?: number;
+}
+
+export interface RetrievalSummary {
+  id: string;
+  ts: number;
+  session_id: string | null;
+  cwd: string | null;
+  prompt: string;
+  scope_used: string | null;
+  hit_count: number;
+}
+
+export interface RetrievalHit {
+  turn_id: string;
+  scope: string | null;
+  kind: string | null;
+  score: number;
+  rank: number;
+  turn: Turn | null;
+}
+
+export interface RetrievalDetail extends RetrievalSummary {
+  hits: RetrievalHit[];
+}
+
+export interface RetrievalsResponse {
+  items: RetrievalSummary[];
+  total: number;
+}
+
+export interface TurnRetrievalsResponse {
+  items: Array<RetrievalSummary & { score: number; rank: number }>;
+  total: number;
 }
 
 export interface TurnsResponse {
   items: Turn[];
   total: number;
   mode: SearchMode;
+}
+
+export interface TopReferencedResponse {
+  items: Turn[];
 }
 
 export interface ScopesResponse {

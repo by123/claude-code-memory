@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { Turn } from "../types";
+import { api } from "../api";
+import type { Scope, Turn, TurnRetrievalsResponse } from "../types";
 
 interface Props {
   turn: Turn;
+  scope: Scope;
   onDelete: () => void;
   onAddTag: (name: string) => void;
   onRemoveTag: (name: string) => void;
@@ -35,9 +37,24 @@ function Markdown({ text }: { text: string }) {
   );
 }
 
-export function TurnCard({ turn, onDelete, onAddTag, onRemoveTag }: Props) {
+export function TurnCard({ turn, scope, onDelete, onAddTag, onRemoveTag }: Props) {
   const [newTag, setNewTag] = useState("");
   const [expanded, setExpanded] = useState(false);
+  const [showRetrievals, setShowRetrievals] = useState(false);
+  const [retrievals, setRetrievals] = useState<TurnRetrievalsResponse | null>(null);
+  const [retrErr, setRetrErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!showRetrievals || retrievals !== null) return;
+    let cancelled = false;
+    api
+      .turnRetrievals(scope, turn.id)
+      .then((d) => !cancelled && setRetrievals(d))
+      .catch((e) => !cancelled && setRetrErr(String(e)));
+    return () => {
+      cancelled = true;
+    };
+  }, [showRetrievals, retrievals, scope, turn.id]);
 
   const userPreview =
     !expanded && turn.user_msg.length > 400
@@ -64,6 +81,15 @@ export function TurnCard({ turn, onDelete, onAddTag, onRemoveTag }: Props) {
           {fmtTs(turn.ts)}
           {typeof turn.score === "number" && (
             <span className="score"> · score {turn.score.toFixed(3)}</span>
+          )}
+          {typeof turn.retrieval_count === "number" && turn.retrieval_count > 0 && (
+            <button
+              className="ref-badge"
+              title="点击查看哪些后续提问引用了这条对话"
+              onClick={() => setShowRetrievals((x) => !x)}
+            >
+              被引用 {turn.retrieval_count} 次
+            </button>
           )}
         </div>
         <button className="danger" onClick={onDelete}>
@@ -110,7 +136,30 @@ export function TurnCard({ turn, onDelete, onAddTag, onRemoveTag }: Props) {
         </form>
       </div>
 
-      {turn.cwd && <div className="cwd">cwd: {turn.cwd}</div>}
+      {showRetrievals && (
+        <div className="ref-panel">
+          <div className="block-title">后续提问引用了这条对话</div>
+          {retrErr && <div className="error">{retrErr}</div>}
+          {!retrErr && retrievals === null && <div className="empty">loading…</div>}
+          {retrievals && retrievals.items.length === 0 && (
+            <div className="empty">暂无引用</div>
+          )}
+          {retrievals && retrievals.items.length > 0 && (
+            <ul className="ref-list">
+              {retrievals.items.map((r) => (
+                <li key={r.id}>
+                  <span className="ts">{fmtTs(r.ts)}</span>
+                  <span className="score">score {r.score.toFixed(3)}</span>
+                  <span className="ref-prompt">
+                    {r.prompt.length > 120 ? r.prompt.slice(0, 120) + "…" : r.prompt}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
     </li>
   );
 }

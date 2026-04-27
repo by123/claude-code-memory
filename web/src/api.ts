@@ -1,4 +1,14 @@
-import type { Scope, SearchMode, ScopesResponse, TagInfo, TurnsResponse } from "./types";
+import type {
+  RetrievalDetail,
+  RetrievalsResponse,
+  Scope,
+  SearchMode,
+  ScopesResponse,
+  TagInfo,
+  TopReferencedResponse,
+  TurnRetrievalsResponse,
+  TurnsResponse,
+} from "./types";
 
 async function jsonFetch<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
   const res = await fetch(input, init);
@@ -46,4 +56,22 @@ export const api = {
     }),
 
   tags: (scope: Scope) => jsonFetch<TagInfo[]>(`/api/tags?scope=${scope}`),
+
+  retrievals: (params: { scope: Scope; page?: number; pageSize?: number; q?: string }) => {
+    const sp = new URLSearchParams();
+    sp.set("scope", params.scope);
+    if (params.page) sp.set("page", String(params.page));
+    if (params.pageSize) sp.set("page_size", String(params.pageSize));
+    if (params.q) sp.set("q", params.q);
+    return jsonFetch<RetrievalsResponse>(`/api/retrievals?${sp}`);
+  },
+
+  retrievalDetail: (scope: Scope, id: string) =>
+    jsonFetch<RetrievalDetail>(`/api/retrievals/${scope}/${id}`),
+
+  turnRetrievals: (scope: Scope, turnId: string) =>
+    jsonFetch<TurnRetrievalsResponse>(`/api/turns/${scope}/${turnId}/retrievals`),
+
+  topReferenced: (scope: Scope, limit = 10) =>
+    jsonFetch<TopReferencedResponse>(`/api/top-referenced?scope=${scope}&limit=${limit}`),
 };

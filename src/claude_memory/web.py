@@ -58,6 +58,14 @@ class TagBody(BaseModel):
     name: str
 
 
+def _attach_retrieval_counts(mem: Memory, items: list) -> None:
+    if not items:
+        return
+    counts = mem.hit_counts_for_turns([t["id"] for t in items])
+    for t in items:
+        t["retrieval_count"] = counts.get(t["id"], 0)
+
+
 def create_app() -> FastAPI:
     load_env()
     app = FastAPI(title="claude-memory web")
@@ -103,11 +111,69 @@ def create_app() -> FastAPI:
                     for it in ordered:
                         it["score"] = score_by_id.get(it["id"])
                     items = ordered
+                _attach_retrieval_counts(mem, items)
                 return {"items": items, "total": len(items), "mode": "semantic"}
             offset = (page - 1) * page_size
             items = mem.list_turns(limit=page_size, offset=offset, query=q, tag=tag)
             total = mem.count_turns(query=q, tag=tag)
+            _attach_retrieval_counts(mem, items)
             return {"items": items, "total": total, "mode": "keyword"}
+
+    @app.get("/api/retrievals")
+    def get_retrievals(
+        scope: str = "global",
+        page: int = 1,
+        page_size: int = 20,
+        q: Optional[str] = None,
+    ) -> dict:
+        page = max(1, page)
+        page_size = max(1, min(200, page_size))
+        offset = (page - 1) * page_size
+        with _memory_for(scope) as mem:
+            items = mem.list_retrievals(limit=page_size, offset=offset, query=q)
+            total = mem.count_retrievals(query=q)
+        return {"items": items, "total": total}
+
+    @app.get("/api/retrievals/{scope}/{retrieval_id}")
+    def get_retrieval_detail(scope: str, retrieval_id: str) -> dict:
+        with _memory_for(scope) as mem:
+            r = mem.get_retrieval(retrieval_id)
+            if r is None:
+                raise HTTPException(status_code=404, detail="retrieval not found")
+            # Group hit turn_ids by their stored scope so we can fetch each from
+            # the correct DB. A retrieval may reference turns in either store.
+            ids_by_scope: dict[str, list[str]] = {}
+            for h in r["hits"]:
+                ids_by_scope.setdefault(h.get("scope") or scope, []).append(h["turn_id"])
+            # Fetch turns from the same DB first (cheap path).
+            turns_map: dict[str, dict] = {}
+            same_ids = ids_by_scope.pop(scope, [])
+            if same_ids:
+                turns_map.update(mem.get_turns_by_ids(same_ids))
+        # Fetch turns from other scopes outside the held memory context.
+        for other_scope, ids in ids_by_scope.items():
+            try:
+                with _memory_for(other_scope) as other:
+                    turns_map.update(other.get_turns_by_ids(ids))
+            except HTTPException:
+                continue
+        for h in r["hits"]:
+            t = turns_map.get(h["turn_id"])
+            h["turn"] = t  # may be None if the turn was deleted
+        return r
+
+    @app.get("/api/top-referenced")
+    def get_top_referenced(scope: str = "global", limit: int = 10) -> dict:
+        limit = max(1, min(50, limit))
+        with _memory_for(scope) as mem:
+            items = mem.top_referenced_turns(limit=limit)
+        return {"items": items}
+
+    @app.get("/api/turns/{scope}/{turn_id}/retrievals")
+    def get_turn_retrievals(scope: str, turn_id: str) -> dict:
+        with _memory_for(scope) as mem:
+            items = mem.list_retrievals_for_turn(turn_id)
+        return {"items": items, "total": len(items)}
 
     @app.delete("/api/turns/{scope}/{turn_id}")
     def delete_turn(scope: str, turn_id: str) -> dict:

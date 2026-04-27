@@ -2,12 +2,16 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "./api";
 import type { ScopesResponse, SearchMode, Scope, TagInfo, Turn } from "./types";
 import { TurnCard } from "./components/TurnCard";
+import { RetrievalsView } from "./components/RetrievalsView";
 
 const PAGE_SIZE = 15;
+
+type View = "turns" | "retrievals";
 
 export default function App() {
   const [scopes, setScopes] = useState<ScopesResponse | null>(null);
   const [scope, setScope] = useState<Scope>("global");
+  const [view, setView] = useState<View>("turns");
   const [page, setPage] = useState(1);
   const [query, setQuery] = useState("");
   const [submittedQuery, setSubmittedQuery] = useState("");
@@ -36,28 +40,23 @@ export default function App() {
     }
   }, [theme]);
 
-  // Initial scope discovery.
   useEffect(() => {
     api.scopes().then((s) => {
       setScopes(s);
-      // Prefer project scope if available so the user sees project-level history first.
       if (s.project) setScope("project");
     });
   }, []);
 
   const refreshTags = (s: Scope) => {
-    api
-      .tags(s)
-      .then(setTags)
-      .catch(() => setTags([]));
+    api.tags(s).then(setTags).catch(() => setTags([]));
   };
 
   useEffect(() => {
     refreshTags(scope);
   }, [scope]);
 
-  // Re-fetch turns whenever filters change.
   useEffect(() => {
+    if (view !== "turns") return;
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -87,7 +86,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [scope, page, submittedQuery, activeTag, mode]);
+  }, [scope, page, submittedQuery, activeTag, mode, view]);
 
   const totalPages = useMemo(() => {
     if (mode === "semantic") return 1;
@@ -149,35 +148,39 @@ export default function App() {
     }
   };
 
+  const projectPath = scopes?.project_dir ?? "no project marker found";
+  const globalPath = scopes?.global_dir ?? "";
+
   return (
     <div className="layout">
       <header className="topbar">
         <div className="brand">
-          <span className="brand-mark">●</span> claude-memory
+          <span className="brand-mark" />
+          <span className="brand-name">claude-memory</span>
           <span className="brand-sub">history</span>
         </div>
 
-        <div className="scope-tabs">
+        <div className="scope-switch" role="tablist" aria-label="scope">
           <button
-            className={scope === "project" ? "tab active" : "tab"}
+            className={`scope-btn${scope === "project" ? " active" : ""}`}
             disabled={!scopes?.project}
             onClick={() => {
               setScope("project");
               setPage(1);
             }}
-            title={scopes?.project_dir ?? "no project marker found"}
+            data-tooltip={projectPath}
           >
-            project {scopes?.project ? "" : "(n/a)"}
+            <span className="scope-dot" /> Project
           </button>
           <button
-            className={scope === "global" ? "tab active" : "tab"}
+            className={`scope-btn${scope === "global" ? " active" : ""}`}
             onClick={() => {
               setScope("global");
               setPage(1);
             }}
-            title={scopes?.global_dir ?? ""}
+            data-tooltip={globalPath}
           >
-            global
+            <span className="scope-dot" /> Global
           </button>
         </div>
 
@@ -185,47 +188,67 @@ export default function App() {
           className="theme-toggle"
           onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
           title={theme === "dark" ? "switch to light mode" : "switch to dark mode"}
+          aria-label="toggle theme"
         >
-          {theme === "dark" ? "☀️ light" : "🌙 dark"}
+          {theme === "dark" ? "☀" : "☾"}
         </button>
       </header>
 
+      <nav className="view-tabs" role="tablist" aria-label="view">
+        <button
+          role="tab"
+          className={view === "turns" ? "view-tab active" : "view-tab"}
+          onClick={() => setView("turns")}
+        >
+          Turns
+        </button>
+        <button
+          role="tab"
+          className={view === "retrievals" ? "view-tab active" : "view-tab"}
+          onClick={() => setView("retrievals")}
+          title="每次对话命中的历史记录"
+        >
+          Retrievals
+        </button>
+      </nav>
+
       <div className="main">
+        {view === "turns" && (
         <aside className="sidebar">
           <form className="search" onSubmit={onSearch}>
             <input
-              placeholder="search…"
+              placeholder="Search…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
             <div className="mode">
-              <label>
+              <label className={mode === "keyword" ? "active" : ""}>
                 <input
                   type="radio"
                   checked={mode === "keyword"}
                   onChange={() => setMode("keyword")}
-                />{" "}
+                />
                 keyword
               </label>
-              <label>
+              <label className={mode === "semantic" ? "active" : ""}>
                 <input
                   type="radio"
                   checked={mode === "semantic"}
                   onChange={() => setMode("semantic")}
-                />{" "}
+                />
                 semantic
               </label>
             </div>
             <div className="search-actions">
-              <button type="submit">search</button>
+              <button type="submit">Search</button>
               <button type="button" onClick={onClear}>
-                clear
+                Clear
               </button>
             </div>
           </form>
 
           <div className="tags-block">
-            <div className="block-title">tags</div>
+            <div className="block-title">Tags</div>
             {tags.length === 0 ? (
               <div className="empty">no tags yet</div>
             ) : (
@@ -246,67 +269,56 @@ export default function App() {
               </ul>
             )}
           </div>
-
-          <div className="meta">
-            <div>
-              <strong>cwd</strong>
-              <code>{scopes?.cwd}</code>
-            </div>
-            {scopes?.project_dir && (
-              <div>
-                <strong>project</strong>
-                <code>{scopes.project_dir}</code>
-              </div>
-            )}
-            <div>
-              <strong>global</strong>
-              <code>{scopes?.global_dir}</code>
-            </div>
-          </div>
         </aside>
+        )}
 
-        <section className="content">
-          <div className="status">
-            <span>
-              {mode === "semantic" && submittedQuery
-                ? `top ${items.length} semantic matches`
-                : `${total} turn${total === 1 ? "" : "s"}`}
-              {activeTag ? ` · #${activeTag}` : ""}
-              {submittedQuery ? ` · "${submittedQuery}"` : ""}
-            </span>
-            {loading && <span className="loading">loading…</span>}
-          </div>
+        {view === "retrievals" ? (
+          <RetrievalsView scope={scope} />
+        ) : (
+            <section className="content">
+              <div className="status">
+                <span>
+                  {mode === "semantic" && submittedQuery
+                    ? `top ${items.length} semantic matches`
+                    : `${total} turn${total === 1 ? "" : "s"}`}
+                  {activeTag ? ` · #${activeTag}` : ""}
+                  {submittedQuery ? ` · "${submittedQuery}"` : ""}
+                </span>
+                {loading && <span className="loading">loading…</span>}
+              </div>
 
-          {error && <div className="error">{error}</div>}
+              {error && <div className="error">{error}</div>}
 
-          <ul className="turns">
-            {items.map((t) => (
-              <TurnCard
-                key={t.id}
-                turn={t}
-                onDelete={() => handleDelete(t)}
-                onAddTag={(name) => handleAddTag(t, name)}
-                onRemoveTag={(name) => handleRemoveTag(t, name)}
-              />
-            ))}
-          </ul>
+              <ul className="turns">
+                {items.map((t) => (
+                  <TurnCard
+                    key={t.id}
+                    turn={t}
+                    scope={scope}
+                    onDelete={() => handleDelete(t)}
+                    onAddTag={(name) => handleAddTag(t, name)}
+                    onRemoveTag={(name) => handleRemoveTag(t, name)}
+                  />
+                ))}
+              </ul>
 
-          {!loading && items.length === 0 && <div className="empty">no turns to show.</div>}
+              {!loading && items.length === 0 && <div className="empty">no turns to show.</div>}
 
-          {mode === "keyword" && totalPages > 1 && (
-            <div className="pagination">
-              <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-                ← prev
-              </button>
-              <span>
-                {page} / {totalPages}
-              </span>
-              <button disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
-                next →
-              </button>
-            </div>
+              {mode === "keyword" && totalPages > 1 && (
+                <div className="pagination">
+                  <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+                    ← prev
+                  </button>
+                  <span>
+                    {page} / {totalPages}
+                  </span>
+                  <button disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+                    next →
+                  </button>
+                </div>
+              )}
+            </section>
           )}
-        </section>
       </div>
     </div>
   );
