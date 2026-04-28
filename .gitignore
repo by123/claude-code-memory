@@ -17,3 +17,6 @@ web/dist/
 src/claude_memory/assets/web/
 .playwright-mcp/
 claude-memory-webui*.png
+.claude-memory/
+.claude/
+CLAUDE.md
