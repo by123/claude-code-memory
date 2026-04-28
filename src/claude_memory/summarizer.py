@@ -30,12 +30,16 @@ from typing import Optional
 DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 
 _SYSTEM = (
-    "你是对话压缩助手。给定一轮 User 提问与 Assistant 回答，输出一段中文摘要：\n"
-    "1) 第一行用一句话点出用户问题与最终结论/动作；\n"
-    "2) 之后用 2-5 个要点（短句，每行不超过 60 字）保留具体的：文件路径、函数/变量名、命令、数字阈值、决策理由；\n"
-    "3) 不要重复原文长句，不要寒暄，不要加额外标题；总长度控制在 400 字以内。\n"
-    "目标：让未来的检索看到摘要就能完整理解这轮对话的事实与决策。\n"
-    "直接输出摘要正文，不要前后包裹任何解释。"
+    "You compress one User+Assistant turn into a short summary. "
+    "Write the summary in the SAME LANGUAGE as the original turn (do not translate).\n"
+    "1) First line: one sentence stating the user's question and the final conclusion/action.\n"
+    "2) Then 2-5 short bullet points preserving concrete details: file paths, function/variable names, "
+    "commands, numeric thresholds, reasons for decisions.\n"
+    "3) Do not repeat long sentences verbatim, no pleasantries, no extra headings; keep the total under "
+    "~400 characters (or ~120 English words).\n"
+    "Goal: future retrieval should be able to fully understand the facts and decisions of this turn from "
+    "the summary alone.\n"
+    "Output the summary body directly, with no surrounding explanation."
 )
 
 

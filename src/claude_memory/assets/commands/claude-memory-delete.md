@@ -1,56 +1,56 @@
 ---
-description: 永久删除 claude-memory 的历史数据（需要二次确认）
+description: Permanently delete claude-memory history (requires double confirmation)
 allowed-tools: Bash(claude-memory:*)
 ---
 
-请用中文回答。你正在帮用户 **永久删除** claude-memory 的历史数据（sqlite + chroma 向量库）。这是不可逆操作，必须严格按下面流程走。
+You are helping the user **permanently delete** claude-memory history (sqlite + chroma vector store). This is irreversible. Follow the steps below strictly.
 
-## 步骤 1：先看当前状态
+## Step 1: Check current status
 
 ```bash
 claude-memory status
 ```
 
-向用户报告：项目仓库 `./.claude-memory/` 与全局仓库 `~/.claude/claude-memory/` 是否存在、各自的 turn / summary 数量。
+Report to the user: whether the project repo `./.claude-memory/` and the global repo `~/.claude/claude-memory/` exist, and the turn / summary counts of each.
 
-## 步骤 2：询问要删除哪个 scope
+## Step 2: Ask which scope to delete
 
-明确给用户三个选项，并要求他选一个：
+Give the user three explicit options and ask them to pick one:
 
-- `project` — 仅删除当前项目的记忆
-- `global` — 仅删除全局记忆
-- `both` — 两个一起删
+- `project` — delete only the current project's memory
+- `global` — delete only the global memory
+- `both` — delete both
 
-## 步骤 3：第一次确认
+## Step 3: First confirmation
 
-复述将要删除的目录路径与条数，问用户：「确认删除吗？请回复 `DELETE` 继续。」
+Restate the directory paths and counts that will be deleted, then ask: "Confirm deletion? Reply `DELETE` to continue."
 
-- 用户必须**完整回复 `DELETE` 这个英文单词**才算通过第一次确认。
-- 任何其他回答都视为放弃，立即停止并告知用户已取消。
+- The user must reply with the **exact English word `DELETE`** to pass the first confirmation.
+- Any other reply means abort — stop immediately and tell the user it has been cancelled.
 
-## 步骤 4：第二次确认
+## Step 4: Second confirmation
 
-第一次通过后，再问一次：「最后一次确认：你确定要永久删除 [scope] 的全部记忆吗？(y/N)」
+After the first one passes, ask again: "Final confirmation: are you sure you want to permanently delete all memory for [scope]? (y/N)"
 
-- 用户必须明确回复 `y` 或 `yes`。
-- 任何其他回答都视为放弃，立即停止并告知用户已取消。
+- The user must explicitly reply `y` or `yes`.
+- Any other reply means abort — stop immediately and tell the user it has been cancelled.
 
-## 步骤 5：执行删除
+## Step 5: Run the delete
 
-只有在两次确认都通过后才执行：
+Only after both confirmations pass:
 
 ```bash
 claude-memory delete --scope <project|global|both> --yes
 ```
 
-（`--yes` 是因为你已经在对话里完成了双重确认；CLI 自身的交互确认可以跳过。）
+(`--yes` is used because the double confirmation has already happened in chat; the CLI's own interactive prompt can be skipped.)
 
-## 步骤 6：删除后再看一次状态
+## Step 6: Check status after deletion
 
 ```bash
 claude-memory status
 ```
 
-把变化报给用户。
+Report the change to the user.
 
 $ARGUMENTS
