@@ -60,6 +60,27 @@ claude-memory status
 
 You should see `turns` and `chroma_turns` counters going up.
 
+## Codex CLI (cross-host memory)
+
+Same memory store, also wired into [Codex CLI](https://developers.openai.com/codex/cli):
+
+```bash
+claude-memory init --target codex   # or --target all to install both
+```
+
+This writes `~/.codex/hooks.json`, sets `[features] codex_hooks = true` in
+`~/.codex/config.toml`, and registers three hooks (`UserPromptSubmit` →
+inject, `Stop` → persist, `SessionStart` → summarize the previous session
+since Codex has no `SessionEnd` event).
+
+Codex's `additionalContext` field is fully respected, so retrieved memory
+is injected exactly like in Claude Code. **Restart any running `codex`
+process for hooks to take effect** — they're loaded at session start.
+
+A turn typed in Claude Code can be recalled inside Codex (and vice versa)
+because both write to the same SQLite + Chroma store at
+`~/.claude/claude-memory/`.
+
 ## CLI
 
 ```

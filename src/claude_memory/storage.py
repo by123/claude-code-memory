@@ -218,6 +218,35 @@ class Memory:
         )
         return sid
 
+    def find_unsummarized_session(
+        self, exclude_session_id: Optional[str] = None, min_turns: int = 2
+    ) -> Optional[str]:
+        """Most recent session with >= min_turns turns and no summary yet.
+
+        Used by the Codex SessionStart hook to summarize the previous session
+        on the way into a new one (Codex has no SessionEnd event).
+        """
+        rows = self.db.execute(
+            """
+            SELECT s.id
+              FROM sessions s
+              LEFT JOIN summaries m ON m.session_id = s.id
+             WHERE m.id IS NULL
+               AND (? IS NULL OR s.id != ?)
+             ORDER BY s.started_at DESC
+             LIMIT 20
+            """,
+            (exclude_session_id, exclude_session_id),
+        ).fetchall()
+        for r in rows:
+            sid = r["id"]
+            n = self.db.execute(
+                "SELECT COUNT(*) AS c FROM turns WHERE session_id = ?", (sid,)
+            ).fetchone()["c"]
+            if n >= min_turns:
+                return sid
+        return None
+
     # ---------- search ----------
     def search(
         self,

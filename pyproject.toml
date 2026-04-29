@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "claude-code-memory"
-version = "0.1.0"
+version = "0.2.0"
 description = "Persistent semantic memory for Claude Code — auto-saves and recalls conversation history across sessions."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -50,3 +50,15 @@ packages = ["src/claude_memory"]
 "src/claude_memory/assets/commands/claude-memory-delete.md" = "claude_memory/assets/commands/claude-memory-delete.md"
 "src/claude_memory/assets/commands/claude-memory-history.md" = "claude_memory/assets/commands/claude-memory-history.md"
 "src/claude_memory/assets/web" = "claude_memory/assets/web"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/claude_memory",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE",
+    "pyproject.toml",
+]
+
+[tool.hatch.build.targets.sdist.force-include]
+"src/claude_memory/assets/web" = "src/claude_memory/assets/web"

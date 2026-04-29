@@ -67,6 +67,117 @@ def _extract_assistant(content) -> tuple:
     return "\n".join(text_parts), "\n".join(tool_parts)
 
 
+def _is_codex_transcript(path: str) -> bool:
+    """Codex rollout files live under ~/.codex/sessions/.../rollout-*.jsonl."""
+    return "/.codex/sessions/" in path or "/sessions/" in path and "/rollout-" in path
+
+
+def _codex_text(content) -> tuple:
+    """Extract (text, tool_marker) from a Codex `payload.content` list.
+
+    Codex content blocks: {"type": "input_text"|"output_text", "text": "..."}.
+    """
+    if isinstance(content, str):
+        return content, ""
+    text_parts = []
+    tool_parts = []
+    if isinstance(content, list):
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            t = block.get("type")
+            if t in ("input_text", "output_text"):
+                txt = block.get("text", "")
+                if txt:
+                    text_parts.append(txt)
+            elif t == "tool_use" or (isinstance(t, str) and t.startswith("tool")):
+                tool_parts.append(f"[tool: {block.get('name', t)}]")
+    return "\n".join(text_parts), "\n".join(tool_parts)
+
+
+def find_last_turn_codex(msgs: list) -> tuple:
+    """Codex rollout JSONL → (user_text, user_uuid, asst_text, asst_uuid, had_prose).
+
+    Codex line shape: {"type": "response_item", "payload": {"type": "message",
+    "role": "user|assistant|developer", "content": [...]}, "timestamp": "..."}.
+    Each turn has a stable `turn_id` exposed via `event_msg` lines (task_started,
+    task_complete) — we use it as the UUID for both halves of the turn.
+
+    Walking backward, we pick the last *real* user prompt: skip developer role
+    and skip the env-context user message that Codex injects on session start
+    (its text starts with "<environment_context>").
+    """
+    last_user_idx = None
+    user_text = None
+    last_user_turn_id = None
+
+    for i in range(len(msgs) - 1, -1, -1):
+        m = msgs[i]
+        if m.get("type") != "response_item":
+            continue
+        p = m.get("payload") or {}
+        if p.get("type") != "message" or p.get("role") != "user":
+            continue
+        text, _ = _codex_text(p.get("content", ""))
+        if not text:
+            continue
+        stripped = text.lstrip()
+        if stripped.startswith("<environment_context>"):
+            continue
+        user_text = text
+        last_user_idx = i
+        break
+
+    if last_user_idx is None:
+        return None, None, None, None, False
+
+    # Find the turn_id by scanning forward for a turn_context / event_msg.
+    for j in range(last_user_idx, len(msgs)):
+        m = msgs[j]
+        p = m.get("payload") or {}
+        tid = p.get("turn_id")
+        if tid:
+            last_user_turn_id = tid
+            break
+    if last_user_turn_id is None:
+        # Fallback: scan backward.
+        for j in range(last_user_idx - 1, -1, -1):
+            p = (msgs[j].get("payload") or {})
+            if p.get("turn_id"):
+                last_user_turn_id = p["turn_id"]
+                break
+    if last_user_turn_id is None:
+        last_user_turn_id = f"codex-idx{last_user_idx}"
+
+    text_parts: list[str] = []
+    tool_parts: list[str] = []
+    last_a_turn_id = None
+    for j in range(last_user_idx + 1, len(msgs)):
+        m = msgs[j]
+        if m.get("type") != "response_item":
+            continue
+        p = m.get("payload") or {}
+        if p.get("type") != "message" or p.get("role") != "assistant":
+            continue
+        t, tools = _codex_text(p.get("content", ""))
+        if t:
+            text_parts.append(t)
+        if tools:
+            tool_parts.append(tools)
+        last_a_turn_id = p.get("turn_id") or last_user_turn_id
+
+    if last_a_turn_id is None:
+        return None, None, None, None, False
+
+    had_prose = bool(text_parts)
+    asst_text = "\n".join(text_parts) if had_prose else "\n".join(tool_parts)
+    # Use `<turn_id>:user` / `<turn_id>:assistant` so both halves disambiguate
+    # if two turns share an id (defensive — shouldn't happen).
+    user_uuid = f"{last_user_turn_id}:user"
+    asst_uuid = f"{last_a_turn_id}:assistant"
+    return user_text, user_uuid, asst_text, asst_uuid, had_prose
+
+
 def find_last_turn(msgs: list) -> tuple:
     last_user_idx = None
     user_text = None
@@ -133,7 +244,10 @@ def persist_last_turn(
         return ""
 
     msgs = read_transcript(transcript_path)
-    user_text, user_uuid, asst_text, a_uuid, had_prose = find_last_turn(msgs)
+    if _is_codex_transcript(transcript_path):
+        user_text, user_uuid, asst_text, a_uuid, had_prose = find_last_turn_codex(msgs)
+    else:
+        user_text, user_uuid, asst_text, a_uuid, had_prose = find_last_turn(msgs)
     if not user_text or not asst_text or not user_uuid:
         return ""
     if require_prose and not had_prose:

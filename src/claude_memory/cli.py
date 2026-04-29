@@ -12,12 +12,16 @@ from pathlib import Path
 from . import __version__
 from .config import (
     CLAUDE_SETTINGS_PATH,
+    CODEX_CONFIG_PATH,
+    CODEX_HOME,
+    CODEX_HOOKS_PATH,
     DATA_DIR,
     DB_PATH,
     ENV_FILE,
     GLOBAL_DATA_DIR,
     LOG_PATH,
     PROJECT_MARKER,
+    SUPPORTED_TARGETS,
     ensure_dirs,
     find_project_root,
     load_env,
@@ -40,7 +44,17 @@ HOOK_COMMANDS = {
     "SessionEnd": ("claude-memory-on-session-end", 60000),
 }
 
+# Codex CLI has no SessionEnd; we use SessionStart to summarize the previous
+# session on entry. Hook commands also receive `--target codex` so the entry
+# points pick the right output format and session-summary semantics.
+CODEX_HOOK_COMMANDS = {
+    "UserPromptSubmit": ("claude-memory-on-prompt --target codex", 10),
+    "Stop": ("claude-memory-on-stop --target codex", 15),
+    "SessionStart": ("claude-memory-on-session-end --target codex", 60),
+}
+
 HOOK_MARKER_COMMANDS = {cmd for cmd, _ in HOOK_COMMANDS.values()}
+CODEX_HOOK_MARKER_COMMANDS = {cmd for cmd, _ in CODEX_HOOK_COMMANDS.values()}
 
 
 # --------------------------------------------------------------------- helpers
@@ -135,6 +149,83 @@ def _remove_hook(settings: dict, event: str, command: str) -> bool:
     return changed
 
 
+# --------------------------------------------------------------------- codex
+
+def _read_codex_hooks() -> dict:
+    if not CODEX_HOOKS_PATH.exists():
+        return {"hooks": {}}
+    try:
+        return json.loads(CODEX_HOOKS_PATH.read_text())
+    except json.JSONDecodeError as e:
+        raise SystemExit(
+            f"Failed to parse {CODEX_HOOKS_PATH}: {e}\n"
+            "Please fix the JSON manually before running this command."
+        )
+
+
+def _write_codex_hooks(payload: dict) -> None:
+    CODEX_HOOKS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CODEX_HOOKS_PATH.write_text(json.dumps(payload, indent=2) + "\n")
+
+
+def _ensure_codex_hook(payload: dict, event: str, command: str, timeout: int) -> bool:
+    hooks = payload.setdefault("hooks", {})
+    blocks = hooks.setdefault(event, [])
+    for block in blocks:
+        for h in block.get("hooks", []) or []:
+            if h.get("type") == "command" and h.get("command") == command:
+                return False
+    blocks.append({
+        "hooks": [{"type": "command", "command": command, "timeout": timeout}]
+    })
+    return True
+
+
+def _remove_codex_hook(payload: dict, event: str, command: str) -> bool:
+    hooks = payload.get("hooks", {})
+    blocks = hooks.get(event)
+    if not blocks:
+        return False
+    new_blocks = []
+    changed = False
+    for block in blocks:
+        inner = block.get("hooks", []) or []
+        kept = [h for h in inner if not (h.get("type") == "command" and h.get("command") == command)]
+        if len(kept) != len(inner):
+            changed = True
+        if kept:
+            new_blocks.append({**block, "hooks": kept})
+    if changed:
+        if new_blocks:
+            hooks[event] = new_blocks
+        else:
+            hooks.pop(event, None)
+    return changed
+
+
+def _ensure_codex_feature_flag() -> bool:
+    """Make sure ~/.codex/config.toml has `[features] codex_hooks = true`.
+
+    We do a minimal text-level merge: if the line is already present we leave
+    it alone; otherwise we append a `[features]` block. We never reformat the
+    rest of the file.
+    """
+    CODEX_HOME.mkdir(parents=True, exist_ok=True)
+    text = CODEX_CONFIG_PATH.read_text() if CODEX_CONFIG_PATH.exists() else ""
+    if "codex_hooks" in text:
+        return False
+    bak = None
+    if CODEX_CONFIG_PATH.exists():
+        bak = CODEX_CONFIG_PATH.with_suffix(f".toml.bak.{int(time.time())}")
+        shutil.copy2(CODEX_CONFIG_PATH, bak)
+    suffix = "\n" if text and not text.endswith("\n") else ""
+    addition = f"{suffix}\n[features]\ncodex_hooks = true\n"
+    CODEX_CONFIG_PATH.write_text(text + addition)
+    if bak:
+        _print_ok(f"Backed up config.toml → {bak.name}")
+    return True
+
+
 def _ensure_env_file() -> bool:
     """Make sure ENV_FILE exists with at least a VOYAGE_API_KEY line.
 
@@ -182,10 +273,59 @@ def _ensure_env_file() -> bool:
 
 # --------------------------------------------------------------------- commands
 
-def cmd_init(args: argparse.Namespace) -> int:
-    print(f"claude-memory v{__version__} — installing")
-    print(f"  data dir: {DATA_DIR}")
+def _install_claude_code() -> None:
     print(f"  settings: {CLAUDE_SETTINGS_PATH}")
+    settings = _read_settings()
+    bak = _backup_settings()
+    if bak:
+        _print_ok(f"Backed up settings.json → {bak.name}")
+
+    changed = False
+    for event, (command, timeout) in HOOK_COMMANDS.items():
+        if _ensure_hook(settings, event, command, timeout):
+            _print_ok(f"Registered Claude Code hook: {event} → {command}")
+            changed = True
+        else:
+            _print_ok(f"Claude Code hook already registered: {event}")
+
+    if changed:
+        _write_settings(settings)
+        _print_ok(f"Updated {CLAUDE_SETTINGS_PATH}")
+
+    for name in SLASH_COMMAND_NAMES:
+        if _install_slash_command(name):
+            _print_ok(f"Installed slash command: /{name[:-3]}")
+
+
+def _install_codex() -> None:
+    print(f"  hooks:    {CODEX_HOOKS_PATH}")
+    print(f"  config:   {CODEX_CONFIG_PATH}")
+
+    if _ensure_codex_feature_flag():
+        _print_ok(f"Enabled `[features] codex_hooks = true` in {CODEX_CONFIG_PATH.name}")
+    else:
+        _print_ok("`codex_hooks` already enabled")
+
+    payload = _read_codex_hooks()
+    changed = False
+    for event, (command, timeout) in CODEX_HOOK_COMMANDS.items():
+        if _ensure_codex_hook(payload, event, command, timeout):
+            _print_ok(f"Registered Codex hook: {event} → {command}")
+            changed = True
+        else:
+            _print_ok(f"Codex hook already registered: {event}")
+    if changed:
+        _write_codex_hooks(payload)
+        _print_ok(f"Updated {CODEX_HOOKS_PATH}")
+
+    print("  ! Restart any running `codex` process for hooks to take effect.")
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    targets = _resolve_targets(args.target)
+
+    print(f"claude-memory v{__version__} — installing for: {', '.join(targets)}")
+    print(f"  data dir: {DATA_DIR}")
     print()
 
     ensure_dirs()
@@ -197,41 +337,31 @@ def cmd_init(args: argparse.Namespace) -> int:
     else:
         _print_warn(f"Wrote {ENV_FILE} (VOYAGE_API_KEY still empty)")
 
-    settings = _read_settings()
-    bak = _backup_settings()
-    if bak:
-        _print_ok(f"Backed up settings.json → {bak.name}")
-
-    changed = False
-    for event, (command, timeout) in HOOK_COMMANDS.items():
-        if _ensure_hook(settings, event, command, timeout):
-            _print_ok(f"Registered hook: {event} → {command}")
-            changed = True
-        else:
-            _print_ok(f"Hook already registered: {event}")
-
-    if changed:
-        _write_settings(settings)
-        _print_ok(f"Updated {CLAUDE_SETTINGS_PATH}")
-
-    for name in SLASH_COMMAND_NAMES:
-        if _install_slash_command(name):
-            _print_ok(f"Installed slash command: /{name[:-3]} → {CLAUDE_COMMANDS_DIR / name}")
-        else:
-            _print_ok(f"Slash command already up to date: /{name[:-3]}")
+    if "claude_code" in targets:
+        print()
+        _install_claude_code()
+    if "codex" in targets:
+        print()
+        _install_codex()
 
     print()
-    print("Done. Open a new Claude Code session and chat for a few turns.")
+    print("Done. Open a new session in your CLI and chat for a few turns.")
     print("Verify with:  claude-memory status")
     return 0
 
 
-def cmd_uninstall(args: argparse.Namespace) -> int:
-    print("claude-memory — removing hooks from settings.json")
+def _resolve_targets(target_arg: str) -> list:
+    if target_arg == "all":
+        return list(SUPPORTED_TARGETS)
+    if target_arg in SUPPORTED_TARGETS:
+        return [target_arg]
+    raise SystemExit(f"Unknown --target: {target_arg!r} (allowed: {SUPPORTED_TARGETS} or 'all')")
 
+
+def _uninstall_claude_code() -> None:
     if not CLAUDE_SETTINGS_PATH.exists():
         _print_warn(f"{CLAUDE_SETTINGS_PATH} does not exist; nothing to do.")
-        return 0
+        return
 
     settings = _read_settings()
     bak = _backup_settings()
@@ -241,7 +371,7 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
     any_removed = False
     for event, (command, _) in HOOK_COMMANDS.items():
         if _remove_hook(settings, event, command):
-            _print_ok(f"Removed hook: {event} → {command}")
+            _print_ok(f"Removed Claude Code hook: {event} → {command}")
             any_removed = True
 
     if any_removed:
@@ -253,6 +383,33 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
     for name in SLASH_COMMAND_NAMES:
         if _remove_slash_command(name):
             _print_ok(f"Removed slash command: {CLAUDE_COMMANDS_DIR / name}")
+
+
+def _uninstall_codex() -> None:
+    if not CODEX_HOOKS_PATH.exists():
+        _print_warn(f"{CODEX_HOOKS_PATH} does not exist; nothing to do.")
+        return
+    payload = _read_codex_hooks()
+    any_removed = False
+    for event, (command, _) in CODEX_HOOK_COMMANDS.items():
+        if _remove_codex_hook(payload, event, command):
+            _print_ok(f"Removed Codex hook: {event} → {command}")
+            any_removed = True
+    if any_removed:
+        _write_codex_hooks(payload)
+        _print_ok(f"Updated {CODEX_HOOKS_PATH}")
+    else:
+        _print_warn("No claude-memory hooks were present in hooks.json.")
+
+
+def cmd_uninstall(args: argparse.Namespace) -> int:
+    targets = _resolve_targets(args.target)
+    print(f"claude-memory — removing hooks for: {', '.join(targets)}")
+
+    if "claude_code" in targets:
+        _uninstall_claude_code()
+    if "codex" in targets:
+        _uninstall_codex()
 
     print()
     print(f"Your memory data is preserved at: {DATA_DIR}")
@@ -289,9 +446,21 @@ def cmd_status(args: argparse.Namespace) -> int:
         except SystemExit as e:
             _print_err(str(e))
             return 1
-        print("  hooks:")
+        print("  Claude Code hooks:")
         for event, (command, _) in HOOK_COMMANDS.items():
             blocks = settings.get("hooks", {}).get(event, [])
+            present = any(_hook_block_has_command(b, command) for b in blocks)
+            print(f"    {event:<18} {'✓' if present else '✗'}  {command}")
+
+    if CODEX_HOOKS_PATH.exists():
+        try:
+            payload = _read_codex_hooks()
+        except SystemExit as e:
+            _print_err(str(e))
+            return 1
+        print(f"  Codex hooks ({CODEX_HOOKS_PATH}):")
+        for event, (command, _) in CODEX_HOOK_COMMANDS.items():
+            blocks = payload.get("hooks", {}).get(event, [])
             present = any(_hook_block_has_command(b, command) for b in blocks)
             print(f"    {event:<18} {'✓' if present else '✗'}  {command}")
 
@@ -702,10 +871,22 @@ def main() -> None:
     p.add_argument("--version", action="version", version=f"claude-memory {__version__}")
     sub = p.add_subparsers(dest="command", required=True)
 
-    sp = sub.add_parser("init", help="Install hooks into ~/.claude/settings.json")
+    sp = sub.add_parser("init", help="Install hooks for one or more CLI hosts")
+    sp.add_argument(
+        "--target",
+        default="claude_code",
+        choices=list(SUPPORTED_TARGETS) + ["all"],
+        help="Which CLI host to install for (default: claude_code)",
+    )
     sp.set_defaults(func=cmd_init)
 
-    sp = sub.add_parser("uninstall", help="Remove hooks from ~/.claude/settings.json")
+    sp = sub.add_parser("uninstall", help="Remove hooks for one or more CLI hosts")
+    sp.add_argument(
+        "--target",
+        default="claude_code",
+        choices=list(SUPPORTED_TARGETS) + ["all"],
+        help="Which CLI host to uninstall from (default: claude_code)",
+    )
     sp.set_defaults(func=cmd_uninstall)
 
     sp = sub.add_parser(

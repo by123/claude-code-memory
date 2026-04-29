@@ -32,6 +32,14 @@ STATE_PATH = DB_DIR / "last_turn.json"
 
 CLAUDE_SETTINGS_PATH = Path(os.path.expanduser("~/.claude/settings.json"))
 
+# Codex CLI integration. Codex auto-loads ~/.codex/hooks.json when
+# `[features] codex_hooks = true` is set in config.toml.
+CODEX_HOME = Path(os.environ.get("CODEX_HOME", os.path.expanduser("~/.codex")))
+CODEX_CONFIG_PATH = CODEX_HOME / "config.toml"
+CODEX_HOOKS_PATH = CODEX_HOME / "hooks.json"
+
+SUPPORTED_TARGETS = ("claude_code", "codex")
+
 
 def paths_for(data_dir: Path) -> dict:
     """Derive all per-store paths from a base data directory."""

@@ -1,7 +1,16 @@
 """UserPromptSubmit hook — inject top-K relevant memories into context.
 
-Claude Code passes hook input on stdin as JSON. Anything we print to stdout
-is injected as additional context for Claude. We fail silently on any error.
+Claude Code and Codex CLI both pass hook input on stdin as JSON, with the
+exact same field names (session_id, cwd, transcript_path, prompt). They
+differ in how to inject context:
+
+  - Claude Code accepts plain stdout text (it gets appended to the prompt).
+  - Codex CLI requires a JSON envelope:
+      {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
+                              "additionalContext": "<text>"}}
+
+We pick the format from `--target {claude_code,codex}` (default claude_code).
+We fail silently on any error.
 """
 import json
 import os
@@ -11,9 +20,21 @@ import traceback
 from ._log import log
 
 
+def _parse_target() -> str:
+    for a in sys.argv[1:]:
+        if a.startswith("--target="):
+            return a.split("=", 1)[1]
+    if "--target" in sys.argv:
+        i = sys.argv.index("--target")
+        if i + 1 < len(sys.argv):
+            return sys.argv[i + 1]
+    return os.environ.get("CLAUDE_MEMORY_TARGET", "claude_code")
+
+
 def _main() -> int:
     if os.environ.get("CLAUDE_MEMORY_NO_HOOK"):
         return 0
+    target = _parse_target()
     try:
         data = json.load(sys.stdin)
     except Exception:
@@ -92,7 +113,17 @@ def _main() -> int:
             text = text[:1200] + "…"
         lines.append(f"\n[{tag} · score={score}]\n{text}")
     lines.append("</memory>")
-    sys.stdout.write("\n".join(lines) + "\n")
+    body = "\n".join(lines)
+
+    if target == "codex":
+        sys.stdout.write(json.dumps({
+            "hookSpecificOutput": {
+                "hookEventName": "UserPromptSubmit",
+                "additionalContext": body,
+            }
+        }))
+    else:
+        sys.stdout.write(body + "\n")
     return 0
 
 
