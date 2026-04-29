@@ -33,7 +33,7 @@ Claude   : 结合你有蛋蛋（金色边牧）这个大运动量的伙伴，可
 ## 安装
 
 ```bash
-pip install lynx-memory
+pip install openlynx
 lynx-memory init
 ```
 

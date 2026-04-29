@@ -37,7 +37,7 @@ Storage:
 ## Install
 
 ```bash
-pip install lynx-memory
+pip install openlynx
 lynx-memory init
 ```
 
