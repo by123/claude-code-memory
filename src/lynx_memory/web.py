@@ -1,6 +1,6 @@
-"""Local Web UI for browsing claude-memory.
+"""Local Web UI for browsing lynx-memory.
 
-Run with `claude-memory web`.
+Run with `lynx-memory web`.
 """
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ def _memory_for(scope: str) -> Iterator[Memory]:
 
 def _static_dir() -> Optional[Path]:
     try:
-        ref = resources.files("claude_memory.assets") / "web"
+        ref = resources.files("lynx_memory.assets") / "web"
     except Exception:
         return None
     p = Path(str(ref))
@@ -68,7 +68,7 @@ def _attach_retrieval_counts(mem: Memory, items: list) -> None:
 
 def create_app() -> FastAPI:
     load_env()
-    app = FastAPI(title="claude-memory web")
+    app = FastAPI(title="lynx-memory web")
 
     @app.get("/api/scopes")
     def get_scopes() -> dict:

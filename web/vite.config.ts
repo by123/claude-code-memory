@@ -4,7 +4,7 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   build: {
-    outDir: "../src/claude_memory/assets/web",
+    outDir: "../src/lynx_memory/assets/web",
     emptyOutDir: true,
   },
   server: {

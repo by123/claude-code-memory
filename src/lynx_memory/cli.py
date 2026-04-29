@@ -1,4 +1,4 @@
-"""claude-memory CLI: init, uninstall, status, doctor, merge."""
+"""lynx-memory CLI: init, uninstall, status, doctor, merge."""
 import argparse
 import json
 import os
@@ -31,26 +31,26 @@ from .config import (
 
 CLAUDE_COMMANDS_DIR = Path(os.path.expanduser("~/.claude/commands"))
 SLASH_COMMAND_NAMES = (
-    "claude-memory-status.md",
-    "claude-memory-pull-global.md",
-    "claude-memory-push-global.md",
-    "claude-memory-delete.md",
-    "claude-memory-history.md",
+    "lynx-memory-status.md",
+    "lynx-memory-pull-global.md",
+    "lynx-memory-push-global.md",
+    "lynx-memory-delete.md",
+    "lynx-memory-history.md",
 )
 
 HOOK_COMMANDS = {
-    "UserPromptSubmit": ("claude-memory-on-prompt", 10000),
-    "Stop": ("claude-memory-on-stop", 15000),
-    "SessionEnd": ("claude-memory-on-session-end", 60000),
+    "UserPromptSubmit": ("lynx-memory-on-prompt", 10000),
+    "Stop": ("lynx-memory-on-stop", 15000),
+    "SessionEnd": ("lynx-memory-on-session-end", 60000),
 }
 
 # Codex CLI has no SessionEnd; we use SessionStart to summarize the previous
 # session on entry. Hook commands also receive `--target codex` so the entry
 # points pick the right output format and session-summary semantics.
 CODEX_HOOK_COMMANDS = {
-    "UserPromptSubmit": ("claude-memory-on-prompt --target codex", 10),
-    "Stop": ("claude-memory-on-stop --target codex", 15),
-    "SessionStart": ("claude-memory-on-session-end --target codex", 60),
+    "UserPromptSubmit": ("lynx-memory-on-prompt --target codex", 10),
+    "Stop": ("lynx-memory-on-stop --target codex", 15),
+    "SessionStart": ("lynx-memory-on-session-end --target codex", 60),
 }
 
 HOOK_MARKER_COMMANDS = {cmd for cmd, _ in HOOK_COMMANDS.values()}
@@ -324,7 +324,7 @@ def _install_codex() -> None:
 def cmd_init(args: argparse.Namespace) -> int:
     targets = _resolve_targets(args.target)
 
-    print(f"claude-memory v{__version__} — installing for: {', '.join(targets)}")
+    print(f"lynx-memory v{__version__} — installing for: {', '.join(targets)}")
     print(f"  data dir: {DATA_DIR}")
     print()
 
@@ -346,7 +346,7 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     print()
     print("Done. Open a new session in your CLI and chat for a few turns.")
-    print("Verify with:  claude-memory status")
+    print("Verify with:  lynx-memory status")
     return 0
 
 
@@ -378,7 +378,7 @@ def _uninstall_claude_code() -> None:
         _write_settings(settings)
         _print_ok(f"Updated {CLAUDE_SETTINGS_PATH}")
     else:
-        _print_warn("No claude-memory hooks were present in settings.json.")
+        _print_warn("No lynx-memory hooks were present in settings.json.")
 
     for name in SLASH_COMMAND_NAMES:
         if _remove_slash_command(name):
@@ -399,12 +399,12 @@ def _uninstall_codex() -> None:
         _write_codex_hooks(payload)
         _print_ok(f"Updated {CODEX_HOOKS_PATH}")
     else:
-        _print_warn("No claude-memory hooks were present in hooks.json.")
+        _print_warn("No lynx-memory hooks were present in hooks.json.")
 
 
 def cmd_uninstall(args: argparse.Namespace) -> int:
     targets = _resolve_targets(args.target)
-    print(f"claude-memory — removing hooks for: {', '.join(targets)}")
+    print(f"lynx-memory — removing hooks for: {', '.join(targets)}")
 
     if "claude_code" in targets:
         _uninstall_claude_code()
@@ -419,7 +419,7 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
 
 
 def cmd_status(args: argparse.Namespace) -> int:
-    print(f"claude-memory v{__version__}")
+    print(f"lynx-memory v{__version__}")
     cwd = Path.cwd()
     proj = find_project_root(cwd)
     active = resolve_data_dir(cwd)
@@ -505,12 +505,12 @@ def cmd_init_project(args: argparse.Namespace) -> int:
 
     print()
     print(f"Project memory will live in: {marker}")
-    print("Run inside this directory:  claude-memory status")
+    print("Run inside this directory:  lynx-memory status")
     return 0
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
-    print("claude-memory doctor")
+    print("lynx-memory doctor")
     rc = 0
 
     print(f"  python         : {sys.version.split()[0]}")
@@ -540,7 +540,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
     load_env()
     if not os.environ.get("VOYAGE_API_KEY"):
-        _print_err("VOYAGE_API_KEY is not set (run `claude-memory init`).")
+        _print_err("VOYAGE_API_KEY is not set (run `lynx-memory init`).")
         rc = 1
     else:
         try:
@@ -563,7 +563,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             _print_err(str(e))
             rc = 1
     else:
-        _print_warn(f"settings.json does not exist yet (run `claude-memory init`).")
+        _print_warn(f"settings.json does not exist yet (run `lynx-memory init`).")
 
     return rc
 
@@ -573,7 +573,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 def _read_bundled_command(name: str) -> str:
     """Read a bundled slash-command markdown file shipped inside the package."""
     return (
-        resources.files("claude_memory.assets.commands")
+        resources.files("lynx_memory.assets.commands")
         .joinpath(name)
         .read_text(encoding="utf-8")
     )
@@ -709,7 +709,7 @@ def cmd_merge(args: argparse.Namespace) -> int:
     src_paths = paths_for(src_dir)
     dst_paths = paths_for(dst_dir)
 
-    print(f"claude-memory merge  {args.from_} → {args.to}")
+    print(f"lynx-memory merge  {args.from_} → {args.to}")
     print(f"  source : {src_dir}")
     print(f"  target : {dst_dir}")
 
@@ -790,7 +790,7 @@ def cmd_delete(args: argparse.Namespace) -> int:
         _print_warn("Nothing to delete.")
         return 0
 
-    print("claude-memory delete — the following data will be permanently removed:")
+    print("lynx-memory delete — the following data will be permanently removed:")
     for label, d in targets:
         print(f"  - {label}: {d}/db  (sqlite + chroma)")
 
@@ -825,7 +825,7 @@ def cmd_web(args: argparse.Namespace) -> int:
         import uvicorn  # noqa: F401
     except ImportError:
         _print_err(
-            "uvicorn is not installed. Reinstall with `pip install -U claude-code-memory`."
+            "uvicorn is not installed. Reinstall with `pip install -U lynx-memory`."
         )
         return 1
 
@@ -839,7 +839,7 @@ def cmd_web(args: argparse.Namespace) -> int:
             port = s.getsockname()[1]
 
     url = f"http://{host}:{port}"
-    print(f"claude-memory web — serving at {url}")
+    print(f"lynx-memory web — serving at {url}")
     print("Press Ctrl+C to stop.")
 
     if not args.no_open:
@@ -857,7 +857,7 @@ def cmd_web(args: argparse.Namespace) -> int:
         threading.Thread(target=_open_later, daemon=True).start()
 
     import uvicorn
-    uvicorn.run("claude_memory.web:app", host=host, port=port, log_level="warning")
+    uvicorn.run("lynx_memory.web:app", host=host, port=port, log_level="warning")
     return 0
 
 
@@ -865,10 +865,10 @@ def cmd_web(args: argparse.Namespace) -> int:
 
 def main() -> None:
     p = argparse.ArgumentParser(
-        prog="claude-memory",
+        prog="lynx-memory",
         description="Persistent semantic memory for Claude Code.",
     )
-    p.add_argument("--version", action="version", version=f"claude-memory {__version__}")
+    p.add_argument("--version", action="version", version=f"lynx-memory {__version__}")
     sub = p.add_subparsers(dest="command", required=True)
 
     sp = sub.add_parser("init", help="Install hooks for one or more CLI hosts")
@@ -891,7 +891,7 @@ def main() -> None:
 
     sp = sub.add_parser(
         "init-project",
-        help="Create a project-scoped memory store (.claude-memory/) in this directory",
+        help="Create a project-scoped memory store (.lynx-memory/) in this directory",
     )
     sp.add_argument("path", nargs="?", default=None, help="Project root (default: cwd)")
     sp.set_defaults(func=cmd_init_project)

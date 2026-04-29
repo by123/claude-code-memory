@@ -28,11 +28,11 @@ def _parse_target() -> str:
         i = sys.argv.index("--target")
         if i + 1 < len(sys.argv):
             return sys.argv[i + 1]
-    return os.environ.get("CLAUDE_MEMORY_TARGET", "claude_code")
+    return os.environ.get("LYNX_MEMORY_TARGET", "claude_code")
 
 
 def _main() -> int:
-    if os.environ.get("CLAUDE_MEMORY_NO_HOOK"):
+    if os.environ.get("LYNX_MEMORY_NO_HOOK"):
         return 0
     target = _parse_target()
     try:
@@ -63,7 +63,7 @@ def _main() -> int:
 
         top_k = int(os.environ.get("TOP_K", 5))
         min_score = float(os.environ.get("MIN_SCORE", 0.7))
-        scope = os.environ.get("CLAUDE_MEMORY_SCOPE", "auto")
+        scope = os.environ.get("LYNX_MEMORY_SCOPE", "auto")
         results = search_scoped(
             prompt, cwd=cwd, scope=scope, top_k=top_k, min_score=min_score
         )

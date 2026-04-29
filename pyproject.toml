@@ -3,15 +3,15 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "claude-code-memory"
+name = "openlynx"
 version = "0.2.0"
-description = "Persistent semantic memory for Claude Code — auto-saves and recalls conversation history across sessions."
+description = "OpenLynx — persistent semantic memory for Claude Code, Codex CLI and other coding agents. Auto-saves and recalls conversation history across sessions."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
-authors = [{ name = "claude-memory contributors" }]
-keywords = ["claude", "claude-code", "memory", "rag", "embeddings", "mcp"]
+authors = [{ name = "OpenLynx contributors" }]
+keywords = ["openlynx", "lynx-memory", "claude", "claude-code", "codex", "memory", "rag", "embeddings", "mcp"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Programming Language :: Python :: 3",
@@ -30,30 +30,30 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/by123/claude-code-memory"
-Issues = "https://github.com/by123/claude-code-memory/issues"
+Homepage = "https://github.com/by123/lynx-memory"
+Issues = "https://github.com/by123/lynx-memory/issues"
 
 [project.scripts]
-claude-memory = "claude_memory.cli:main"
-claude-memory-on-prompt = "claude_memory.hooks.on_prompt:main"
-claude-memory-on-stop = "claude_memory.hooks.on_stop:main"
-claude-memory-on-session-end = "claude_memory.hooks.on_session_end:main"
-claude-memory-mcp = "claude_memory.server:main"
+lynx-memory = "lynx_memory.cli:main"
+lynx-memory-on-prompt = "lynx_memory.hooks.on_prompt:main"
+lynx-memory-on-stop = "lynx_memory.hooks.on_stop:main"
+lynx-memory-on-session-end = "lynx_memory.hooks.on_session_end:main"
+lynx-memory-mcp = "lynx_memory.server:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/claude_memory"]
+packages = ["src/lynx_memory"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"src/claude_memory/assets/commands/claude-memory-status.md" = "claude_memory/assets/commands/claude-memory-status.md"
-"src/claude_memory/assets/commands/claude-memory-pull-global.md" = "claude_memory/assets/commands/claude-memory-pull-global.md"
-"src/claude_memory/assets/commands/claude-memory-push-global.md" = "claude_memory/assets/commands/claude-memory-push-global.md"
-"src/claude_memory/assets/commands/claude-memory-delete.md" = "claude_memory/assets/commands/claude-memory-delete.md"
-"src/claude_memory/assets/commands/claude-memory-history.md" = "claude_memory/assets/commands/claude-memory-history.md"
-"src/claude_memory/assets/web" = "claude_memory/assets/web"
+"src/lynx_memory/assets/commands/lynx-memory-status.md" = "lynx_memory/assets/commands/lynx-memory-status.md"
+"src/lynx_memory/assets/commands/lynx-memory-pull-global.md" = "lynx_memory/assets/commands/lynx-memory-pull-global.md"
+"src/lynx_memory/assets/commands/lynx-memory-push-global.md" = "lynx_memory/assets/commands/lynx-memory-push-global.md"
+"src/lynx_memory/assets/commands/lynx-memory-delete.md" = "lynx_memory/assets/commands/lynx-memory-delete.md"
+"src/lynx_memory/assets/commands/lynx-memory-history.md" = "lynx_memory/assets/commands/lynx-memory-history.md"
+"src/lynx_memory/assets/web" = "lynx_memory/assets/web"
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "src/claude_memory",
+    "src/lynx_memory",
     "README.md",
     "README.zh-CN.md",
     "LICENSE",
@@ -61,4 +61,4 @@ include = [
 ]
 
 [tool.hatch.build.targets.sdist.force-include]
-"src/claude_memory/assets/web" = "src/claude_memory/assets/web"
+"src/lynx_memory/assets/web" = "src/lynx_memory/assets/web"

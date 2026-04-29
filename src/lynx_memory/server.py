@@ -13,7 +13,7 @@ from .storage import Memory, search_scoped
 _STARTUP_CWD = os.getcwd()
 load_env(resolve_data_dir(_STARTUP_CWD))
 
-mcp = FastMCP("claude-memory")
+mcp = FastMCP("lynx-memory")
 
 
 def _data_dir_for(scope: str):

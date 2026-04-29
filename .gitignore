@@ -14,9 +14,9 @@ db/
 .vscode/
 web/node_modules/
 web/dist/
-src/claude_memory/assets/web/
+src/lynx_memory/assets/web/
 .playwright-mcp/
-claude-memory-webui*.png
-.claude-memory/
+lynx-memory-webui*.png
+.lynx-memory/
 .claude/
 CLAUDE.md

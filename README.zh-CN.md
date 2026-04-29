@@ -1,4 +1,4 @@
-# claude-memory
+# lynx-memory
 
 [English README](./README.md)
 
@@ -33,13 +33,13 @@ Claude   : 结合你有蛋蛋（金色边牧）这个大运动量的伙伴，可
 ## 安装
 
 ```bash
-pip install claude-code-memory
-claude-memory init
+pip install lynx-memory
+lynx-memory init
 ```
 
 `init` 会：
 
-1. 创建数据目录 `~/.claude/claude-memory/`
+1. 创建数据目录 `~/.claude/lynx-memory/`
 2. 提示你输入 `VOYAGE_API_KEY`（免费申请：https://www.voyageai.com/）
 3. 写入默认配置：`MIN_SCORE=0.7`、`SUMMARY_ENABLED=1`、
    `SUMMARY_MODEL=claude-haiku-4-5-20251001`、`SUMMARY_BACKEND=auto`
@@ -49,44 +49,64 @@ claude-memory init
 然后开一个新的 Claude Code 会话，聊几轮后跑：
 
 ```bash
-claude-memory status
+lynx-memory status
 ```
 
 你应该能看到 `turns` 和 `chroma_turns` 在涨。
 
+## Codex CLI（跨宿主记忆）
+
+同一份记忆库也可以接入 [Codex CLI](https://developers.openai.com/codex/cli)：
+
+```bash
+lynx-memory init --target codex   # 或 --target all 同时安装两边
+```
+
+会写入 `~/.codex/hooks.json`，在 `~/.codex/config.toml` 设置
+`[features] codex_hooks = true`，并注册三个 hook（`UserPromptSubmit` →
+注入；`Stop` → 持久化；`SessionStart` → 给上一段会话生成摘要，
+因为 Codex 没有 `SessionEnd` 事件）。
+
+Codex 的 `additionalContext` 字段会被完整尊重，记忆注入方式与
+Claude Code 一致。**hook 在会话启动时加载，请重启正在运行的
+`codex` 进程后才会生效。**
+
+在 Claude Code 写下的对话可以在 Codex 里被召回（反之亦然），
+因为两边都写入同一个 `~/.claude/lynx-memory/` 下的 SQLite + Chroma 仓库。
+
 ## 命令
 
 ```
-claude-memory init           安装 hooks 与 slash 命令
-claude-memory init-project   在当前目录创建 .claude-memory/ 标记，启用项目级存储
-claude-memory status         查看数据目录、hook 注册情况、数据库统计
-claude-memory doctor         自检 Python、依赖、API key、settings.json
-claude-memory merge          在项目级 / 全局两个仓库之间合并记忆
+lynx-memory init           安装 hooks 与 slash 命令
+lynx-memory init-project   在当前目录创建 .lynx-memory/ 标记，启用项目级存储
+lynx-memory status         查看数据目录、hook 注册情况、数据库统计
+lynx-memory doctor         自检 Python、依赖、API key、settings.json
+lynx-memory merge          在项目级 / 全局两个仓库之间合并记忆
                              （--from / --to 选 project|global，可选 --dry-run）
-claude-memory delete         永久删除某个 scope 的记忆
+lynx-memory delete         永久删除某个 scope 的记忆
                              （--scope project|global|both，默认带二次确认）
-claude-memory uninstall      卸载 hooks 与 slash 命令（保留数据）
+lynx-memory uninstall      卸载 hooks 与 slash 命令（保留数据）
 ```
 
 ## Slash 命令
 
-`claude-memory init` 会顺带把以下五个全局 slash 命令安装到 `~/.claude/commands/`，
+`lynx-memory init` 会顺带把以下五个全局 slash 命令安装到 `~/.claude/commands/`，
 在任意 Claude Code 会话里直接调用：
 
 | 命令                          | 作用                                                 |
 | ----------------------------- | ---------------------------------------------------- |
-| `/claude-memory-status`       | 查看当前是项目级还是全局，并显示两个仓库的统计       |
-| `/claude-memory-pull-global`  | 把全局历史会话合并到当前项目（global → project）     |
-| `/claude-memory-push-global`  | 把当前项目的历史会话合并到全局（project → global）   |
-| `/claude-memory-delete`       | 永久删除记忆，对话里强制双重确认（输 `DELETE` + `y`）|
-| `/claude-memory-history`      | 打开本地 Web UI 浏览历史，支持搜索、打标签、删除     |
+| `/lynx-memory-status`       | 查看当前是项目级还是全局，并显示两个仓库的统计       |
+| `/lynx-memory-pull-global`  | 把全局历史会话合并到当前项目（global → project）     |
+| `/lynx-memory-push-global`  | 把当前项目的历史会话合并到全局（project → global）   |
+| `/lynx-memory-delete`       | 永久删除记忆，对话里强制双重确认（输 `DELETE` + `y`）|
+| `/lynx-memory-history`      | 打开本地 Web UI 浏览历史，支持搜索、打标签、删除     |
 
-这些命令是 Claude 自然语言执行模板，会自动跑 `claude-memory status` /
+这些命令是 Claude 自然语言执行模板，会自动跑 `lynx-memory status` /
 `merge --dry-run` 预览，并在合并 / 删除前征得你的同意。
 
 ## Web UI
 
-在 Claude Code 里输 `/claude-memory-history`（或直接跑 `claude-memory web`），
+在 Claude Code 里输 `/lynx-memory-history`（或直接跑 `lynx-memory web`），
 会在 `127.0.0.1` 启动一个 FastAPI + React 的本地服务并自动开浏览器。在页面里你可以：
 
 - 在 **项目级** 与 **全局** 之间一键切换
@@ -100,16 +120,16 @@ claude-memory uninstall      卸载 hooks 与 slash 命令（保留数据）
 
 ```bash
 # 默认 —— 监听 http://127.0.0.1:9527 并自动开浏览器
-claude-memory web
+lynx-memory web
 
 # 换端口
-claude-memory web --port 8080
+lynx-memory web --port 8080
 
 # 让系统挑一个空闲端口
-claude-memory web --port 0
+lynx-memory web --port 0
 
 # 不自动开浏览器（headless / SSH 场景）
-claude-memory web --no-open
+lynx-memory web --no-open
 ```
 
 UI 上的操作直接落库：
@@ -131,19 +151,19 @@ UI 上的操作直接落库：
 
 ```bash
 cd ~/code/my-project
-claude-memory init-project
+lynx-memory init-project
 ```
 
-会创建 `.claude-memory/` 标记目录。之后只要 cwd 在该项目内，记忆就自动切到
-项目级仓库 `<project>/.claude-memory/db/`，与全局 `~/.claude/claude-memory/`
+会创建 `.lynx-memory/` 标记目录。之后只要 cwd 在该项目内，记忆就自动切到
+项目级仓库 `<project>/.lynx-memory/db/`，与全局 `~/.claude/lynx-memory/`
 互不污染。
 
-随时用 `/claude-memory-status` 查看当前 scope，用 `/claude-memory-pull-global`
-/ `/claude-memory-push-global` 在两层之间搬运历史。
+随时用 `/lynx-memory-status` 查看当前 scope，用 `/lynx-memory-pull-global`
+/ `/lynx-memory-push-global` 在两层之间搬运历史。
 
 ## 配置
 
-全部可选，写在 `~/.claude/claude-memory/.env`：
+全部可选，写在 `~/.claude/lynx-memory/.env`：
 
 | 变量                            | 默认值                              | 用途                              |
 | ------------------------------- | ----------------------------------- | --------------------------------- |
@@ -155,8 +175,8 @@ claude-memory init-project
 | `SUMMARY_BACKEND`               | `auto`                              | `auto`：PATH 上有 `claude` 时走 CLI，否则走 SDK；可强制 `cli` 或 `sdk` |
 | `SUMMARY_TIMEOUT`               | `60`                                | `claude -p` 子进程超时秒数        |
 | `ANTHROPIC_API_KEY`             | —                                   | 仅当 `SUMMARY_BACKEND=sdk` 时需要；CLI 后端复用 `claude` 自身鉴权 |
-| `CLAUDE_MEMORY_DIR`             | `~/.claude/claude-memory`           | SQLite + Chroma 数据目录          |
-| `CLAUDE_MEMORY_SUMMARY_MODEL`   | `claude-haiku-4-5-20251001`         | `SessionEnd` 摘要用的模型         |
+| `LYNX_MEMORY_DIR`             | `~/.claude/lynx-memory`           | SQLite + Chroma 数据目录          |
+| `LYNX_MEMORY_SUMMARY_MODEL`   | `claude-haiku-4-5-20251001`         | `SessionEnd` 摘要用的模型         |
 
 ## 可选：MCP 服务
 
@@ -166,8 +186,8 @@ claude-memory init-project
 ```json
 {
   "mcpServers": {
-    "claude-memory": {
-      "command": "claude-memory-mcp"
+    "lynx-memory": {
+      "command": "lynx-memory-mcp"
     }
   }
 }
@@ -176,34 +196,34 @@ claude-memory init-project
 ## 卸载
 
 ```bash
-claude-memory uninstall                   # 移除 hooks 与 slash 命令
-claude-memory delete --scope global       # 删除全局存储数据（带确认）
+lynx-memory uninstall                   # 移除 hooks 与 slash 命令
+lynx-memory delete --scope global       # 删除全局存储数据（带确认）
 # 或
-rm -rf ~/.claude/claude-memory            # 直接 rm（不可逆）
+rm -rf ~/.claude/lynx-memory            # 直接 rm（不可逆）
 ```
 
 ## 隐私说明
 
-- 所有数据保存在你本机的 `~/.claude/claude-memory/`
+- 所有数据保存在你本机的 `~/.claude/lynx-memory/`
 - 外部请求：**Voyage AI**（embedding，包含你的 prompt 文本）；**Anthropic**
   Haiku 用于每轮摘要（默认走你已登录的 `claude` CLI，无需另配 key）和
   `SessionEnd` 会话级总结
 - 不想让每轮内容被发去做摘要的话，设 `SUMMARY_ENABLED=0`
-- 想加密静态数据的话，把 `CLAUDE_MEMORY_DIR` 指向一个加密卷即可
+- 想加密静态数据的话，把 `LYNX_MEMORY_DIR` 指向一个加密卷即可
 
 ## Roadmap
 
 - [x] **项目级 / 全局双层存储**
-  默认全局共享，进入含 `.claude-memory/` 标记的项目目录后自动切换到项目级，避免不同项目的历史互相污染。在项目根目录运行 `claude-memory init-project` 创建标记。检索支持 `scope=auto|project|global|merged`（hooks 通过 `CLAUDE_MEMORY_SCOPE` 环境变量切换；MCP 工具直接传 `scope` 参数）。
+  默认全局共享，进入含 `.lynx-memory/` 标记的项目目录后自动切换到项目级，避免不同项目的历史互相污染。在项目根目录运行 `lynx-memory init-project` 创建标记。检索支持 `scope=auto|project|global|merged`（hooks 通过 `LYNX_MEMORY_SCOPE` 环境变量切换；MCP 工具直接传 `scope` 参数）。
 
 - [ ] **多 CLI 客户端支持**
-  在现有 Claude Code 基础上扩展到 **Cursor CLI、Codex CLI、Gemini CLI**，提供 `claude-memory install --client <name>` 一键写入 MCP 配置，并附带强制召回的 rules 模板，确保各客户端都能稳定触发记忆查询。
+  在现有 Claude Code 基础上扩展到 **Cursor CLI、Codex CLI、Gemini CLI**，提供 `lynx-memory install --client <name>` 一键写入 MCP 配置，并附带强制召回的 rules 模板，确保各客户端都能稳定触发记忆查询。
 
 - [ ] **记忆导入 / 导出与跨设备同步**
-  提供 `claude-memory export` / `import` 命令，支持 JSONL 格式备份与恢复；配合 iCloud / Dropbox / Git 仓库放置 `db/` 目录，或内置 `claude-memory sync` 子命令，实现多台设备记忆共享。
+  提供 `lynx-memory export` / `import` 命令，支持 JSONL 格式备份与恢复；配合 iCloud / Dropbox / Git 仓库放置 `db/` 目录，或内置 `lynx-memory sync` 子命令，实现多台设备记忆共享。
 
 - [x] **本地 Web UI 记忆浏览器**
-  基于 FastAPI + React 的本地可视化界面，支持翻页浏览、关键字 / 语义搜索、单条删除、打标签（如 `#work` `#personal`）等操作。通过 slash 命令 `/claude-memory-history`（或 `claude-memory web`）打开，页面同时展示项目级与全局的历史对话，可一键切换。
+  基于 FastAPI + React 的本地可视化界面，支持翻页浏览、关键字 / 语义搜索、单条删除、打标签（如 `#work` `#personal`）等操作。通过 slash 命令 `/lynx-memory-history`（或 `lynx-memory web`）打开，页面同时展示项目级与全局的历史对话，可一键切换。
 
 ## 协议
 

@@ -156,7 +156,7 @@ export default function App() {
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark" />
-          <span className="brand-name">claude-memory</span>
+          <span className="brand-name">lynx-memory</span>
           <span className="brand-sub">history</span>
         </div>
 

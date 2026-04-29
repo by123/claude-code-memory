@@ -1,8 +1,8 @@
-"""Centralized paths and environment loading for claude-memory.
+"""Centralized paths and environment loading for lynx-memory.
 
 Supports two storage scopes:
-  - global: ~/.claude/claude-memory/ (default, also overridable via CLAUDE_MEMORY_DIR)
-  - project: <project_root>/.claude-memory/ when walked-up from cwd
+  - global: ~/.claude/lynx-memory/ (default, also overridable via LYNX_MEMORY_DIR)
+  - project: <project_root>/.lynx-memory/ when walked-up from cwd
 
 `resolve_data_dir(cwd)` picks project if a marker dir is present, else global.
 """
@@ -12,12 +12,12 @@ from typing import Optional, Union
 
 from dotenv import load_dotenv
 
-PROJECT_MARKER = ".claude-memory"
+PROJECT_MARKER = ".lynx-memory"
 
 GLOBAL_DATA_DIR = Path(
     os.environ.get(
-        "CLAUDE_MEMORY_DIR",
-        os.path.expanduser("~/.claude/claude-memory"),
+        "LYNX_MEMORY_DIR",
+        os.path.expanduser("~/.claude/lynx-memory"),
     )
 )
 
@@ -56,7 +56,7 @@ def paths_for(data_dir: Path) -> dict:
 
 
 def find_project_root(cwd: Optional[Union[str, os.PathLike]] = None) -> Optional[Path]:
-    """Walk up from `cwd` looking for a `.claude-memory/` directory.
+    """Walk up from `cwd` looking for a `.lynx-memory/` directory.
 
     Returns the marker directory path if found, else None. The user's $HOME is
     skipped to prevent an accidental marker there from globalising the project

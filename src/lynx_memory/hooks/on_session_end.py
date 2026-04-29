@@ -25,7 +25,7 @@ def _parse_target() -> str:
         i = sys.argv.index("--target")
         if i + 1 < len(sys.argv):
             return sys.argv[i + 1]
-    return os.environ.get("CLAUDE_MEMORY_TARGET", "claude_code")
+    return os.environ.get("LYNX_MEMORY_TARGET", "claude_code")
 
 SUMMARIZE_PROMPT = """You are summarizing a conversation between a user and Claude Code for a long-term memory system.
 
@@ -44,7 +44,7 @@ DEFAULT_SUMMARY_MODEL = "claude-haiku-4-5-20251001"
 
 
 def _model() -> str:
-    return os.environ.get("CLAUDE_MEMORY_SUMMARY_MODEL", DEFAULT_SUMMARY_MODEL)
+    return os.environ.get("LYNX_MEMORY_SUMMARY_MODEL", DEFAULT_SUMMARY_MODEL)
 
 
 def _summarize_via_cli(conversation: str) -> str:
@@ -53,7 +53,7 @@ def _summarize_via_cli(conversation: str) -> str:
     if cli is None:
         return ""
     env = os.environ.copy()
-    env["CLAUDE_MEMORY_NO_HOOK"] = "1"
+    env["LYNX_MEMORY_NO_HOOK"] = "1"
     try:
         proc = subprocess.run(
             [cli, "-p", "--model", _model(), "--output-format", "text",
@@ -95,7 +95,7 @@ def _summarize(conversation: str) -> str:
 
 
 def _main() -> int:
-    if os.environ.get("CLAUDE_MEMORY_NO_HOOK"):
+    if os.environ.get("LYNX_MEMORY_NO_HOOK"):
         return 0
     target = _parse_target()
     try:

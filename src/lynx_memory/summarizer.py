@@ -6,7 +6,7 @@ recall can inject summaries into context instead of full prose.
 Two backends:
   1. CLI (default): shell out to `claude -p --model <haiku>` and reuse the
      user's already-authenticated Claude Code session. No extra API key
-     needed. We set CLAUDE_MEMORY_NO_HOOK=1 in the child so that our own
+     needed. We set LYNX_MEMORY_NO_HOOK=1 in the child so that our own
      UserPromptSubmit/Stop hooks no-op inside the subprocess and we don't
      recurse.
   2. SDK fallback: if `claude` CLI is missing AND ANTHROPIC_API_KEY is set,
@@ -69,7 +69,7 @@ def _summarize_via_cli(user_msg: str, assistant_msg: str) -> Optional[str]:
         f"User:\n{user_msg[:6000]}\n\n---\n\nAssistant:\n{assistant_msg[:10000]}"
     )
     env = os.environ.copy()
-    env["CLAUDE_MEMORY_NO_HOOK"] = "1"
+    env["LYNX_MEMORY_NO_HOOK"] = "1"
     try:
         proc = subprocess.run(
             [
@@ -166,7 +166,7 @@ def spawn_background(data_dir: str, turn_id: str) -> None:
         return
     try:
         subprocess.Popen(
-            [sys.executable, "-m", "claude_memory.summarizer", data_dir, turn_id],
+            [sys.executable, "-m", "lynx_memory.summarizer", data_dir, turn_id],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,

@@ -1,17 +1,17 @@
 ---
-description: Permanently delete claude-memory history (requires double confirmation)
-allowed-tools: Bash(claude-memory:*)
+description: Permanently delete lynx-memory history (requires double confirmation)
+allowed-tools: Bash(lynx-memory:*)
 ---
 
-You are helping the user **permanently delete** claude-memory history (sqlite + chroma vector store). This is irreversible. Follow the steps below strictly.
+You are helping the user **permanently delete** lynx-memory history (sqlite + chroma vector store). This is irreversible. Follow the steps below strictly.
 
 ## Step 1: Check current status
 
 ```bash
-claude-memory status
+lynx-memory status
 ```
 
-Report to the user: whether the project repo `./.claude-memory/` and the global repo `~/.claude/claude-memory/` exist, and the turn / summary counts of each.
+Report to the user: whether the project repo `./.lynx-memory/` and the global repo `~/.claude/lynx-memory/` exist, and the turn / summary counts of each.
 
 ## Step 2: Ask which scope to delete
 
@@ -40,7 +40,7 @@ After the first one passes, ask again: "Final confirmation: are you sure you wan
 Only after both confirmations pass:
 
 ```bash
-claude-memory delete --scope <project|global|both> --yes
+lynx-memory delete --scope <project|global|both> --yes
 ```
 
 (`--yes` is used because the double confirmation has already happened in chat; the CLI's own interactive prompt can be skipped.)
@@ -48,7 +48,7 @@ claude-memory delete --scope <project|global|both> --yes
 ## Step 6: Check status after deletion
 
 ```bash
-claude-memory status
+lynx-memory status
 ```
 
 Report the change to the user.
