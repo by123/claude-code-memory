@@ -38,6 +38,8 @@ class Memory(
 _shared_memory_cache: Dict[Path, Memory] = {}
 _shared_memory_locks: Dict[Path, threading.RLock] = {}
 _cache_guard = threading.Lock()
+# chromadb.PersistentClient can deadlock/hang if multiple DB paths initialize concurrently (Web UI).
+_chroma_ctor_lock = threading.Lock()
 
 
 def get_shared_memory(data_dir: Optional[Path] = None) -> Memory:
@@ -50,22 +52,26 @@ def get_shared_memory(data_dir: Optional[Path] = None) -> Memory:
     from ..config import GLOBAL_DATA_DIR
     key = Path(data_dir or GLOBAL_DATA_DIR).resolve()
     with _cache_guard:
-        mem = _shared_memory_cache.get(key)
-        if mem is None:
+        if key in _shared_memory_cache:
+            return _shared_memory_cache[key]
+    with _chroma_ctor_lock:
+        with _cache_guard:
+            if key in _shared_memory_cache:
+                return _shared_memory_cache[key]
             mem = Memory(data_dir=key)
             _shared_memory_cache[key] = mem
             _shared_memory_locks[key] = threading.RLock()
-        return mem
+            return mem
 
 
 def memory_lock(data_dir: Optional[Path] = None) -> threading.RLock:
     """Return the per-store lock created alongside the cached Memory."""
     from ..config import GLOBAL_DATA_DIR
     key = Path(data_dir or GLOBAL_DATA_DIR).resolve()
+    # Must not call get_shared_memory while holding _cache_guard — it also takes
+    # _cache_guard (non-reentrant Lock) and would deadlock the web UI on first use.
+    get_shared_memory(key)
     with _cache_guard:
-        if key not in _shared_memory_locks:
-            # Ensure the cache + lock exist together.
-            get_shared_memory(key)
         return _shared_memory_locks[key]
 
 

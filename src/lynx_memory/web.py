@@ -4,6 +4,7 @@ Run with `lynx-memory web`.
 """
 from __future__ import annotations
 
+import sqlite3
 from contextlib import contextmanager
 from importlib import resources
 from pathlib import Path
@@ -24,6 +25,22 @@ def _scope_dir(scope: str) -> Optional[Path]:
     if scope == "project":
         return find_project_root(Path.cwd())
     raise HTTPException(status_code=400, detail=f"unknown scope: {scope!r}")
+
+
+def _sqlite_turn_count(data_dir: Path) -> int:
+    """Count turns without opening Chroma (avoids concurrent PersistentClient init)."""
+    db_path = data_dir / "db" / "memory.db"
+    if not db_path.is_file():
+        return 0
+    try:
+        con = sqlite3.connect(str(db_path), timeout=5.0)
+        try:
+            row = con.execute("SELECT COUNT(*) FROM turns").fetchone()
+            return int(row[0]) if row else 0
+        finally:
+            con.close()
+    except Exception:
+        return 0
 
 
 @contextmanager
@@ -70,12 +87,16 @@ def create_app() -> FastAPI:
     @app.get("/api/scopes")
     def get_scopes() -> dict:
         proj = find_project_root(Path.cwd())
+        g_count = _sqlite_turn_count(GLOBAL_DATA_DIR)
+        p_count = _sqlite_turn_count(proj) if proj else 0
         return {
             "project": proj is not None,
             "global": True,
             "project_dir": str(proj) if proj else None,
             "global_dir": str(GLOBAL_DATA_DIR),
             "cwd": str(Path.cwd()),
+            "global_turn_count": g_count,
+            "project_turn_count": p_count,
         }
 
     @app.get("/api/turns")

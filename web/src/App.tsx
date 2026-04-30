@@ -43,7 +43,8 @@ export default function App() {
   useEffect(() => {
     api.scopes().then((s) => {
       setScopes(s);
-      if (s.project) setScope("project");
+      if (s.project && s.project_turn_count > 0) setScope("project");
+      else setScope("global");
     });
   }, []);
 
@@ -52,11 +53,13 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (!scopes) return;
     refreshTags(scope);
-  }, [scope]);
+  }, [scope, scopes]);
 
   useEffect(() => {
     if (view !== "turns") return;
+    if (!scopes) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -86,7 +89,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [scope, page, submittedQuery, activeTag, mode, view]);
+  }, [scopes, scope, page, submittedQuery, activeTag, mode, view]);
 
   const totalPages = useMemo(() => {
     if (mode === "semantic") return 1;
@@ -280,7 +283,7 @@ export default function App() {
         )}
 
         {view === "retrievals" ? (
-          <RetrievalsView scope={scope} />
+          <RetrievalsView scope={scope} scopesReady={scopes !== null} />
         ) : (
             <section className="content">
               <div className="status">

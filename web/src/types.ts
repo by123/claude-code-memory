@@ -73,6 +73,9 @@ export interface ScopesResponse {
   project_dir: string | null;
   global_dir: string;
   cwd: string;
+  /** SQLite row counts only; used to pick default scope without opening Chroma. */
+  global_turn_count: number;
+  project_turn_count: number;
 }
 
 export interface TagInfo {

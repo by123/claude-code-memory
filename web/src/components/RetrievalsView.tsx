@@ -132,9 +132,11 @@ function TurnModal({ turn, onClose }: { turn: Turn; onClose: () => void }) {
 
 interface Props {
   scope: Scope;
+  /** When false, skip Memory-backed fetches until /api/scopes has run (avoids concurrent Chroma init). */
+  scopesReady?: boolean;
 }
 
-export function RetrievalsView({ scope }: Props) {
+export function RetrievalsView({ scope, scopesReady = true }: Props) {
   const [items, setItems] = useState<RetrievalSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -149,6 +151,7 @@ export function RetrievalsView({ scope }: Props) {
   const [modalTurn, setModalTurn] = useState<Turn | null>(null);
 
   useEffect(() => {
+    if (!scopesReady) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -169,9 +172,10 @@ export function RetrievalsView({ scope }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [scope, page, submittedQuery]);
+  }, [scope, page, submittedQuery, scopesReady]);
 
   useEffect(() => {
+    if (!scopesReady) return;
     let cancelled = false;
     setTopLoading(true);
     api
@@ -182,7 +186,7 @@ export function RetrievalsView({ scope }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [scope]);
+  }, [scope, scopesReady]);
 
   const totalPages = useMemo(
     () => Math.max(1, Math.ceil(total / PAGE_SIZE)),
