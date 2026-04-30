@@ -1,20 +1,27 @@
-"""Haiku-powered turn summarizer.
+"""Turn summarizer.
 
 Generates a compact summary for a single (user, assistant) turn so memory
 recall can inject summaries into context instead of full prose.
 
-Two backends:
-  1. CLI (default): shell out to `claude -p --model <haiku>` and reuse the
-     user's already-authenticated Claude Code session. No extra API key
-     needed. We set LYNX_MEMORY_NO_HOOK=1 in the child so that our own
-     UserPromptSubmit/Stop hooks no-op inside the subprocess and we don't
-     recurse.
-  2. SDK fallback: if `claude` CLI is missing AND ANTHROPIC_API_KEY is set,
+Three backends:
+  1. CLI (claude, default): shell out to `claude -p --model <haiku>` and reuse the
+     user's already-authenticated Claude Code session. No extra API key needed.
+     We set LYNX_MEMORY_NO_HOOK=1 in the child so that our own hooks no-op.
+  2. CLI (codex, fallback): if `claude` CLI is missing but `codex` is available,
+     shell out to `codex exec --ephemeral`. Caveats:
+       - codex has no `--append-system-prompt`; the system instructions are
+         prepended to the user prompt body instead.
+       - codex routes to whatever provider/model is configured in
+         `~/.codex/config.toml`. SUMMARY_MODEL is IGNORED on this path — to
+         summarize with a specific model via codex, configure a codex profile.
+       - The summary is attributed as source="codex" with model=None, since
+         we cannot reliably know which provider codex picked.
+  3. SDK fallback: if both CLI tools are missing AND ANTHROPIC_API_KEY is set,
      fall back to the Anthropic SDK with prompt caching.
 
 Defaults:
   - SUMMARY_ENABLED=1 (set "0"/"false" to disable)
-  - SUMMARY_MODEL=claude-haiku-4-5-20251001
+  - SUMMARY_MODEL=claude-haiku-4-5-20251001  (claude CLI / SDK only)
   - SUMMARY_BACKEND=auto | cli | sdk
 """
 from __future__ import annotations
@@ -23,9 +30,10 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 
@@ -60,30 +68,34 @@ def _claude_cli() -> Optional[str]:
     return shutil.which("claude")
 
 
-def _summarize_via_cli(user_msg: str, assistant_msg: str) -> Optional[str]:
-    cli = _claude_cli()
-    if cli is None:
-        return None
-    content = (
-        "下面是需要摘要的对话。请严格按系统提示中的格式输出摘要正文：\n\n"
-        f"User:\n{user_msg[:6000]}\n\n---\n\nAssistant:\n{assistant_msg[:10000]}"
-    )
+def _codex_cli() -> Optional[str]:
+    return shutil.which("codex")
+
+
+SummaryResult = Tuple[str, str, Optional[str]]  # (summary, source, model)
+
+
+def _conversation_body(user_msg: str, assistant_msg: str) -> str:
+    return f"User:\n{user_msg[:6000]}\n\n---\n\nAssistant:\n{assistant_msg[:10000]}"
+
+
+def _run_cli(
+    argv: list,
+    *,
+    source: str,
+    model: Optional[str],
+    output_file: Optional[str] = None,
+) -> Optional[SummaryResult]:
+    """Shell out to a CLI summarizer; collect stdout (or output_file) as text.
+
+    `output_file`, when given, is preferred over stdout (codex writes its
+    final message there, avoiding session-banner noise).
+    """
     env = os.environ.copy()
     env["LYNX_MEMORY_NO_HOOK"] = "1"
     try:
         proc = subprocess.run(
-            [
-                cli,
-                "-p",
-                "--model",
-                model_name(),
-                "--append-system-prompt",
-                _SYSTEM,
-                "--output-format",
-                "text",
-                "--no-session-persistence",
-                content,
-            ],
+            argv,
             input="",
             capture_output=True,
             text=True,
@@ -94,8 +106,81 @@ def _summarize_via_cli(user_msg: str, assistant_msg: str) -> Optional[str]:
         return None
     if proc.returncode != 0:
         return None
-    out = (proc.stdout or "").strip()
-    return out or None
+    if output_file is not None:
+        try:
+            text = Path(output_file).read_text(encoding="utf-8").strip()
+        except Exception:
+            return None
+    else:
+        text = (proc.stdout or "").strip()
+    return (text, source, model) if text else None
+
+
+def _summarize_via_codex(user_msg: str, assistant_msg: str) -> Optional[SummaryResult]:
+    """Fallback when claude CLI is unavailable.
+
+    codex has no `--append-system-prompt`; we prepend _SYSTEM into the body.
+    We also do not pass --model: codex uses whatever is configured in
+    ~/.codex/config.toml. SUMMARY_MODEL is intentionally not forwarded, and
+    the result is attributed source="codex" with model=None.
+    """
+    cli = _codex_cli()
+    if cli is None:
+        return None
+    content = (
+        f"{_SYSTEM}\n\n"
+        "下面是需要摘要的对话。请严格按上面的格式输出摘要正文：\n\n"
+        + _conversation_body(user_msg, assistant_msg)
+    )
+    out_path: Optional[str] = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w", suffix=".txt", delete=False, prefix="lynx-codex-"
+        ) as f:
+            out_path = f.name
+        return _run_cli(
+            [
+                cli, "exec",
+                "--ephemeral",
+                "--skip-git-repo-check",
+                "--color", "never",
+                "--output-last-message", out_path,
+                content,
+            ],
+            source="codex",
+            model=None,
+            output_file=out_path,
+        )
+    finally:
+        if out_path:
+            try:
+                os.unlink(out_path)
+            except OSError:
+                pass
+
+
+def _summarize_via_cli(user_msg: str, assistant_msg: str) -> Optional[SummaryResult]:
+    """Primary backend: shell out to `claude` CLI."""
+    cli = _claude_cli()
+    if cli is None:
+        return None
+    content = (
+        "下面是需要摘要的对话。请严格按系统提示中的格式输出摘要正文：\n\n"
+        + _conversation_body(user_msg, assistant_msg)
+    )
+    model = model_name()
+    return _run_cli(
+        [
+            cli, "-p",
+            "--model", model,
+            "--append-system-prompt", _SYSTEM,
+            "--output-format", "text",
+            "--no-session-persistence",
+            content,
+        ],
+        source="haiku",
+        model=model,
+    )
 
 
 @lru_cache(maxsize=1)
@@ -108,15 +193,16 @@ def _sdk_client():
     return anthropic.Anthropic(api_key=key)
 
 
-def _summarize_via_sdk(user_msg: str, assistant_msg: str) -> Optional[str]:
+def _summarize_via_sdk(user_msg: str, assistant_msg: str) -> Optional[SummaryResult]:
     try:
         client = _sdk_client()
     except Exception:
         return None
     content = f"User:\n{user_msg[:6000]}\n\n---\n\nAssistant:\n{assistant_msg[:10000]}"
+    model = model_name()
     try:
         resp = client.messages.create(
-            model=model_name(),
+            model=model,
             max_tokens=600,
             system=[
                 {
@@ -135,11 +221,15 @@ def _summarize_via_sdk(user_msg: str, assistant_msg: str) -> Optional[str]:
         if t:
             parts.append(t)
     text = "\n".join(parts).strip()
-    return text or None
+    return (text, "haiku", model) if text else None
 
 
-def summarize(user_msg: str, assistant_msg: str) -> Optional[str]:
-    """Return a short summary, or None on failure / if disabled."""
+def summarize_with_source(user_msg: str, assistant_msg: str) -> Optional[SummaryResult]:
+    """Return (summary, source, model), or None on failure / if disabled.
+
+    `model` may be None when the backend (codex CLI) does not expose which
+    model it routed to.
+    """
     if not is_enabled():
         return None
     user_msg = (user_msg or "").strip()
@@ -152,12 +242,21 @@ def summarize(user_msg: str, assistant_msg: str) -> Optional[str]:
         return _summarize_via_cli(user_msg, assistant_msg)
     if backend == "sdk":
         return _summarize_via_sdk(user_msg, assistant_msg)
-    # auto: try CLI first, fall back to SDK if CLI missing
+    # auto: try claude CLI first, then codex CLI, finally SDK
     if _claude_cli() is not None:
         out = _summarize_via_cli(user_msg, assistant_msg)
         if out:
             return out
+    if _codex_cli() is not None:
+        out = _summarize_via_codex(user_msg, assistant_msg)
+        if out:
+            return out
     return _summarize_via_sdk(user_msg, assistant_msg)
+
+
+def summarize(user_msg: str, assistant_msg: str) -> Optional[str]:
+    result = summarize_with_source(user_msg, assistant_msg)
+    return result[0] if result else None
 
 
 def spawn_background(data_dir: str, turn_id: str) -> None:
@@ -190,10 +289,11 @@ def _run_one(data_dir: str, turn_id: str) -> int:
             return 1
         if t.get("summary"):
             return 0  # already summarized
-        s = summarize(t["user_msg"], t["assistant_msg"])
-        if not s:
+        result = summarize_with_source(t["user_msg"], t["assistant_msg"])
+        if not result:
             return 2
-        mem.set_summary(turn_id, s, model=model_name())
+        summary, source, used_model = result
+        mem.set_summary(turn_id, summary, source=source, model=used_model)
     finally:
         mem.close()
     return 0

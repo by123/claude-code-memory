@@ -766,6 +766,108 @@ def cmd_merge(args: argparse.Namespace) -> int:
     return 0
 
 
+# --------------------------------------------------------------------- retag
+
+def _retag_scope(
+    scope: str,
+    data_dir: Path,
+    *,
+    dry_run: bool = False,
+    limit: int | None = None,
+) -> tuple[int, int]:
+    from .autotag import suggest_tags
+    from .storage import Memory
+
+    mem = Memory(data_dir=data_dir)
+    try:
+        turns = mem.iter_turns_for_retag(limit=limit)
+        changed = 0
+        for turn in turns:
+            tag_suggestions = suggest_tags(
+                user_msg=turn["user_msg"],
+                assistant_msg=turn["assistant_msg"],
+                cwd=turn.get("cwd"),
+            )
+            current_auto = {
+                (row["tag_name"], row["kind"] or "custom")
+                for row in mem.db.execute(
+                    "SELECT tt.tag_name, tg.kind "
+                    "FROM turn_tags tt JOIN tags tg ON tg.name = tt.tag_name "
+                    "WHERE tt.turn_id = ? AND tt.source = 'auto'",
+                    (turn["id"],),
+                ).fetchall()
+            }
+            suggested_auto = {
+                (item["name"], item.get("kind") or "custom") for item in tag_suggestions
+            }
+            if dry_run:
+                if current_auto != suggested_auto:
+                    changed += 1
+                continue
+            mem.refresh_auto_tags(
+                turn["id"],
+                user_msg=turn["user_msg"],
+                assistant_msg=turn["assistant_msg"],
+                cwd=turn.get("cwd"),
+            )
+            if current_auto != suggested_auto:
+                changed += 1
+        return len(turns), changed
+    finally:
+        mem.close()
+
+
+def cmd_retag(args: argparse.Namespace) -> int:
+    cwd = Path.cwd()
+    targets: list[tuple[str, Path]] = []
+
+    if args.scope in ("project", "both"):
+        proj = _resolve_scope_dir("project", cwd)
+        if proj is None:
+            _print_warn(f"project: no project marker found walking up from {cwd}; skipping.")
+        else:
+            targets.append(("project", proj))
+    if args.scope in ("global", "both"):
+        targets.append(("global", GLOBAL_DATA_DIR))
+
+    if not targets:
+        _print_warn("Nothing to retag.")
+        return 0
+
+    print("lynx-memory retag")
+    print(f"  dry-run : {'yes' if args.dry_run else 'no'}")
+    if args.limit:
+        print(f"  limit   : {args.limit}")
+
+    total_scanned = 0
+    total_changed = 0
+    for scope, data_dir in targets:
+        db_path = paths_for(data_dir)["db_path"]
+        if not db_path.exists():
+            _print_warn(f"{scope}: no database at {db_path}; skipping.")
+            continue
+        scanned, changed = _retag_scope(
+            scope,
+            data_dir,
+            dry_run=args.dry_run,
+            limit=args.limit,
+        )
+        total_scanned += scanned
+        total_changed += changed
+        verb = "would update" if args.dry_run else "updated"
+        _print_ok(f"{scope}: scanned {scanned} turns, {verb} {changed}")
+
+    if total_scanned == 0:
+        _print_warn("No turns found.")
+        return 0
+
+    if args.dry_run:
+        print("Re-run without `--dry-run` to write structured auto-tags.")
+    else:
+        print(f"Done. Retagged {total_changed} / {total_scanned} turns.")
+    return 0
+
+
 # --------------------------------------------------------------------- delete
 
 def cmd_delete(args: argparse.Namespace) -> int:
@@ -912,6 +1014,15 @@ def main() -> None:
     sp.add_argument("--delete-source", action="store_true", help="Wipe source data after copy (destructive)")
     sp.add_argument("-y", "--yes", action="store_true", help="Skip confirmation for --delete-source")
     sp.set_defaults(func=cmd_merge)
+
+    sp = sub.add_parser(
+        "retag",
+        help="Backfill structured auto-tags onto existing turns",
+    )
+    sp.add_argument("--scope", default="both", choices=["project", "global", "both"])
+    sp.add_argument("--dry-run", action="store_true", help="Preview how many turns would be retagged")
+    sp.add_argument("--limit", type=int, default=None, help="Only process the most recent N turns per scope")
+    sp.set_defaults(func=cmd_retag)
 
     sp = sub.add_parser(
         "delete",

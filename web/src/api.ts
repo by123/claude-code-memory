@@ -43,11 +43,11 @@ export const api = {
   deleteTurn: (scope: Scope, id: string) =>
     jsonFetch<{ ok: true }>(`/api/turns/${scope}/${id}`, { method: "DELETE" }),
 
-  addTag: (scope: Scope, id: string, name: string) =>
+  addTag: (scope: Scope, id: string, name: string, kind = "custom") =>
     jsonFetch<{ ok: true }>(`/api/turns/${scope}/${id}/tags`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, kind }),
     }),
 
   removeTag: (scope: Scope, id: string, name: string) =>
@@ -76,7 +76,7 @@ export const api = {
     jsonFetch<TopReferencedResponse>(`/api/top-referenced?scope=${scope}&limit=${limit}`),
 
   regenerateSummary: (scope: Scope, id: string) =>
-    jsonFetch<{ ok: true; summary: string; summary_model: string }>(
+    jsonFetch<{ ok: true; summary: string; summary_model: string; summary_source: string }>(
       `/api/turns/${scope}/${id}/summary`,
       { method: "POST" },
     ),

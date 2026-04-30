@@ -122,11 +122,16 @@ export default function App() {
     const clean = name.trim().replace(/^#/, "");
     if (!clean) return;
     try {
-      await api.addTag(scope, turn.id, clean);
+      await api.addTag(scope, turn.id, clean, "custom");
       setItems((prev) =>
         prev.map((t) =>
-          t.id === turn.id && !t.tags.includes(clean)
-            ? { ...t, tags: [...t.tags, clean].sort() }
+          t.id === turn.id && !t.tags.some((tag) => tag.name === clean)
+            ? {
+                ...t,
+                tags: [...t.tags, { name: clean, kind: "custom", source: "manual" }].sort(
+                  (a, b) => `${a.kind}:${a.name}`.localeCompare(`${b.kind}:${b.name}`),
+                ),
+              }
             : t,
         ),
       );
@@ -140,7 +145,9 @@ export default function App() {
     try {
       await api.removeTag(scope, turn.id, name);
       setItems((prev) =>
-        prev.map((t) => (t.id === turn.id ? { ...t, tags: t.tags.filter((x) => x !== name) } : t)),
+        prev.map((t) =>
+          t.id === turn.id ? { ...t, tags: t.tags.filter((x) => x.name !== name) } : t,
+        ),
       );
       refreshTags(scope);
     } catch (e) {
@@ -262,7 +269,7 @@ export default function App() {
                         setPage(1);
                       }}
                     >
-                      #{t.name} <span className="count">{t.count}</span>
+                      [{t.kind}] {t.name} <span className="count">{t.count}</span>
                     </button>
                   </li>
                 ))}

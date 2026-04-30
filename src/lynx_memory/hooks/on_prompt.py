@@ -45,8 +45,12 @@ def _main() -> int:
     cwd = data.get("cwd") or ""
     transcript_path = data.get("transcript_path") or ""
 
-    # Persist the previous turn first — Stop hook often fires before the
-    # assistant's final text is flushed to the transcript.
+    # Safety-net persistence for the previous turn: Stop hook is the primary
+    # writer, but it can fire before the assistant's prose is flushed. By the
+    # time the user submits the next prompt the transcript is definitely
+    # complete, so we re-persist (loose: tool-only counts). The state file in
+    # persist_last_turn dedups against Stop's write — if it already saved this
+    # turn, we exit before opening the DB.
     try:
         from ..transcript import persist_last_turn
         persist_last_turn(transcript_path, session_id, cwd, require_prose=False)

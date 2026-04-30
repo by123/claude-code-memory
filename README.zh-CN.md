@@ -83,6 +83,8 @@ lynx-memory status         查看数据目录、hook 注册情况、数据库统
 lynx-memory doctor         自检 Python、依赖、API key、settings.json
 lynx-memory merge          在项目级 / 全局两个仓库之间合并记忆
                              （--from / --to 选 project|global，可选 --dry-run）
+lynx-memory retag          给历史 turn 回填结构化自动标签
+                             （--scope project|global|both，可选 --dry-run / --limit）
 lynx-memory delete         永久删除某个 scope 的记忆
                              （--scope project|global|both，默认带二次确认）
 lynx-memory uninstall      卸载 hooks 与 slash 命令（保留数据）
@@ -113,6 +115,7 @@ lynx-memory uninstall      卸载 hooks 与 slash 命令（保留数据）
 - 翻页浏览所有 turn
 - **关键字**（SQL `LIKE`）或 **语义** 搜索（基于 Voyage 向量）
 - 给单条 turn 打标签（如 `#work`、`#personal`），并按标签过滤
+- 自动生成**类型化标签**，区分 `user` / `project` / `module` / `custom`
 - 删除单条 turn（同时清掉 Chroma 里的向量）
 - 每条 turn 顶部显示 **Haiku 摘要**，可一键"重新生成"
 
@@ -144,6 +147,29 @@ UI 上的操作直接落库：
 | **重新生成摘要** | 调一次 `claude -p`（Haiku），把 `summary` / `summary_model` / `summary_ts` 写回 `turns`            |
 
 服务只监听 `127.0.0.1`，按 `Ctrl+C` 关闭。
+
+### 标签类型
+
+为了让记忆更稳定地被组织和召回，标签现在分为几类更细的 taxonomy：
+
+- `user.role`：用户级角色信息，例：`role:产品经理`
+- `user.preference`：用户偏好 / 习惯，例：`preference:偏好简洁回答`
+- `project.repo`：项目或仓库身份，例：`repo:openlynx`
+- `project.stack`：稳定技术栈，例：`stack:react`、`stack:fastapi`
+- `module.feature`：当前轮对话关联的模块 / 功能域，例：`module:storage`
+- `custom`：手工补充标签，继续兼容原来的自由标签
+
+其中 `user.*` / `project.*` / `module.*` 会在 turn 落库时做一轮本地规则式自动打标；语义检索阶段还会按标签类型轻量重排，让 `user` 级记忆比 `module` 级记忆更容易被优先召回。
+
+历史数据可以用下面的命令回填：
+
+```bash
+# 先预览会影响多少条
+lynx-memory retag --scope both --dry-run
+
+# 正式写回
+lynx-memory retag --scope both
+```
 
 ## 项目级 vs 全局
 

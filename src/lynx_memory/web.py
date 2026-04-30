@@ -4,7 +4,6 @@ Run with `lynx-memory web`.
 """
 from __future__ import annotations
 
-import threading
 from contextlib import contextmanager
 from importlib import resources
 from pathlib import Path
@@ -16,12 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .config import GLOBAL_DATA_DIR, find_project_root, load_env
-from .storage import Memory
-
-# Chroma's PersistentClient is not safe to instantiate concurrently against the
-# same path from multiple threads — its module-level identifier cache races on
-# init. Since this is a single-user local UI, a process-wide lock is fine.
-_memory_lock = threading.Lock()
+from .storage import Memory, get_shared_memory, memory_lock
 
 
 def _scope_dir(scope: str) -> Optional[Path]:
@@ -34,15 +28,17 @@ def _scope_dir(scope: str) -> Optional[Path]:
 
 @contextmanager
 def _memory_for(scope: str) -> Iterator[Memory]:
+    """Yield a process-shared Memory for `scope`, serialized per data_dir.
+
+    The instance is cached process-wide (chromadb init is expensive and
+    racy if re-entered concurrently); the per-store RLock ensures we don't
+    interleave multi-statement work across requests.
+    """
     d = _scope_dir(scope)
     if d is None:
         raise HTTPException(status_code=404, detail=f"scope {scope!r} not available")
-    with _memory_lock:
-        mem = Memory(data_dir=d)
-        try:
-            yield mem
-        finally:
-            mem.close()
+    with memory_lock(d):
+        yield get_shared_memory(d)
 
 
 def _static_dir() -> Optional[Path]:
@@ -56,6 +52,7 @@ def _static_dir() -> Optional[Path]:
 
 class TagBody(BaseModel):
     name: str
+    kind: str = "custom"
 
 
 def _attach_retrieval_counts(mem: Memory, items: list) -> None:
@@ -101,7 +98,7 @@ def create_app() -> FastAPI:
                     placeholders = ",".join("?" for _ in ids)
                     rows = mem.db.execute(
                         f"SELECT id, session_id, ts, cwd, user_msg, assistant_msg, "
-                        f"summary, summary_model, summary_ts "
+                        f"summary, summary_source, summary_model, summary_ts "
                         f"FROM turns WHERE id IN ({placeholders})",
                         ids,
                     ).fetchall()
@@ -187,7 +184,7 @@ def create_app() -> FastAPI:
     @app.post("/api/turns/{scope}/{turn_id}/tags")
     def add_turn_tag(scope: str, turn_id: str, body: TagBody) -> dict:
         with _memory_for(scope) as mem:
-            ok = mem.add_tag(turn_id, body.name)
+            ok = mem.add_tag(turn_id, body.name, kind=body.kind, source="manual")
         if not ok:
             raise HTTPException(status_code=400, detail="could not add tag")
         return {"ok": True}
@@ -202,7 +199,8 @@ def create_app() -> FastAPI:
 
     @app.post("/api/turns/{scope}/{turn_id}/summary")
     def regenerate_summary(scope: str, turn_id: str) -> dict:
-        from .summarizer import is_enabled, model_name, summarize
+        from .summarizer import summarize_with_source
+        from .summarizer import is_enabled
 
         if not is_enabled():
             raise HTTPException(status_code=400, detail="summarizer disabled (SUMMARY_ENABLED=0)")
@@ -210,20 +208,22 @@ def create_app() -> FastAPI:
             t = mem.get_turn(turn_id)
             if t is None:
                 raise HTTPException(status_code=404, detail="turn not found")
-            summary = summarize(t["user_msg"], t["assistant_msg"])
-            if not summary:
+            result = summarize_with_source(t["user_msg"], t["assistant_msg"])
+            if not result:
                 raise HTTPException(status_code=502, detail="summarizer failed (check ANTHROPIC_API_KEY)")
-            mem.set_summary(turn_id, summary, model=model_name())
+            summary, source, used_model = result
+            mem.set_summary(turn_id, summary, source=source, model=used_model)
             return {
                 "ok": True,
                 "summary": summary,
-                "summary_model": model_name(),
+                "summary_source": source,
+                "summary_model": used_model,
             }
 
     @app.get("/api/tags")
-    def get_tags(scope: str = "global") -> list[dict]:
+    def get_tags(scope: str = "global", kind: Optional[str] = None) -> list[dict]:
         with _memory_for(scope) as mem:
-            return mem.list_tags()
+            return mem.list_tags(kind=kind)
 
     static_dir = _static_dir()
     if static_dir is not None:

@@ -1,0 +1,79 @@
+"""Storage layer: SQLite (source of truth) + Chroma (vector index).
+
+Public surface: `Memory` (per-store facade) and `search_scoped`
+(cross-store search). Internals are split by responsibility into the
+`_base`, `_crud`, `_tags`, `_search`, `_retrievals` modules and composed
+here as mixins.
+"""
+from __future__ import annotations
+
+import threading
+from pathlib import Path
+from typing import Dict, Optional
+
+from ._base import _MemoryBase, TAG_KIND_WEIGHTS, SCHEMA
+from ._crud import _CrudMixin
+from ._retrievals import _RetrievalsMixin
+from ._scoped_search import search_scoped
+from ._search import _SearchMixin
+from ._tags import _TagsMixin
+
+
+class Memory(
+    _CrudMixin,
+    _TagsMixin,
+    _SearchMixin,
+    _RetrievalsMixin,
+    _MemoryBase,
+):
+    """Per-store memory facade. Compose all mixins with the base last."""
+
+
+# ---- Per-process Memory cache ---------------------------------------------
+# chromadb.PersistentClient init isn't cheap and isn't safe to instantiate
+# concurrently against the same path, so for long-lived processes (web UI,
+# repeated search_scoped calls) we keep one Memory per resolved data_dir.
+# Hook commands run in short-lived subprocesses and don't benefit; they can
+# keep using `Memory(data_dir=...)` directly.
+_shared_memory_cache: Dict[Path, Memory] = {}
+_shared_memory_locks: Dict[Path, threading.RLock] = {}
+_cache_guard = threading.Lock()
+
+
+def get_shared_memory(data_dir: Optional[Path] = None) -> Memory:
+    """Return a process-wide cached Memory for `data_dir`.
+
+    Callers MUST NOT call `.close()` on the returned instance — it lives
+    until process exit. Use `memory_lock(data_dir)` to serialize access if
+    you need to do multi-statement work without other threads interleaving.
+    """
+    from ..config import GLOBAL_DATA_DIR
+    key = Path(data_dir or GLOBAL_DATA_DIR).resolve()
+    with _cache_guard:
+        mem = _shared_memory_cache.get(key)
+        if mem is None:
+            mem = Memory(data_dir=key)
+            _shared_memory_cache[key] = mem
+            _shared_memory_locks[key] = threading.RLock()
+        return mem
+
+
+def memory_lock(data_dir: Optional[Path] = None) -> threading.RLock:
+    """Return the per-store lock created alongside the cached Memory."""
+    from ..config import GLOBAL_DATA_DIR
+    key = Path(data_dir or GLOBAL_DATA_DIR).resolve()
+    with _cache_guard:
+        if key not in _shared_memory_locks:
+            # Ensure the cache + lock exist together.
+            get_shared_memory(key)
+        return _shared_memory_locks[key]
+
+
+__all__ = [
+    "Memory",
+    "search_scoped",
+    "get_shared_memory",
+    "memory_lock",
+    "TAG_KIND_WEIGHTS",
+    "SCHEMA",
+]

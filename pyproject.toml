@@ -49,7 +49,6 @@ packages = ["src/lynx_memory"]
 "src/lynx_memory/assets/commands/lynx-memory-push-global.md" = "lynx_memory/assets/commands/lynx-memory-push-global.md"
 "src/lynx_memory/assets/commands/lynx-memory-delete.md" = "lynx_memory/assets/commands/lynx-memory-delete.md"
 "src/lynx_memory/assets/commands/lynx-memory-history.md" = "lynx_memory/assets/commands/lynx-memory-history.md"
-"src/lynx_memory/assets/web" = "lynx_memory/assets/web"
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -59,6 +58,3 @@ include = [
     "LICENSE",
     "pyproject.toml",
 ]
-
-[tool.hatch.build.targets.sdist.force-include]
-"src/lynx_memory/assets/web" = "src/lynx_memory/assets/web"

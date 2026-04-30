@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "../api";
-import type { Scope, Turn, TurnRetrievalsResponse } from "../types";
+import type { Scope, TagAttachment, Turn, TurnRetrievalsResponse } from "../types";
 
 interface Props {
   turn: Turn;
@@ -37,6 +37,18 @@ function Markdown({ text }: { text: string }) {
   );
 }
 
+function tagLabel(tag: TagAttachment): string {
+  return `[${tag.kind}] ${tag.name}`;
+}
+
+function inferSummarySource(source: string | null | undefined, model: string | null | undefined): string | null {
+  if (source && source.trim()) return source.trim();
+  const m = (model ?? "").toLowerCase();
+  if (m.includes("codex")) return "codex";
+  if (m.includes("claude") || m.includes("haiku")) return "haiku";
+  return null;
+}
+
 export function TurnCard({ turn, scope, onDelete, onAddTag, onRemoveTag }: Props) {
   const [newTag, setNewTag] = useState("");
   const [expanded, setExpanded] = useState(false);
@@ -44,14 +56,17 @@ export function TurnCard({ turn, scope, onDelete, onAddTag, onRemoveTag }: Props
   const [retrievals, setRetrievals] = useState<TurnRetrievalsResponse | null>(null);
   const [retrErr, setRetrErr] = useState<string | null>(null);
   const [summary, setSummary] = useState<string | null>(turn.summary ?? null);
+  const [summarySource, setSummarySource] = useState<string | null>(turn.summary_source ?? null);
   const [summaryModel, setSummaryModel] = useState<string | null>(turn.summary_model ?? null);
   const [summaryBusy, setSummaryBusy] = useState(false);
   const [summaryErr, setSummaryErr] = useState<string | null>(null);
+  const displaySummarySource = inferSummarySource(summarySource, summaryModel);
 
   useEffect(() => {
     setSummary(turn.summary ?? null);
+    setSummarySource(turn.summary_source ?? null);
     setSummaryModel(turn.summary_model ?? null);
-  }, [turn.id, turn.summary, turn.summary_model]);
+  }, [turn.id, turn.summary, turn.summary_model, turn.summary_source]);
 
   const regenerate = async () => {
     setSummaryBusy(true);
@@ -59,6 +74,7 @@ export function TurnCard({ turn, scope, onDelete, onAddTag, onRemoveTag }: Props
     try {
       const r = await api.regenerateSummary(scope, turn.id);
       setSummary(r.summary);
+      setSummarySource(r.summary_source);
       setSummaryModel(r.summary_model);
     } catch (e) {
       setSummaryErr(String(e));
@@ -123,13 +139,14 @@ export function TurnCard({ turn, scope, onDelete, onAddTag, onRemoveTag }: Props
       <div className={`summary-block${summary ? "" : " empty"}`}>
         <div className="summary-head">
           <span className="summary-tag">摘要</span>
-          {summaryModel && <span className="summary-model">{summaryModel}</span>}
+          {displaySummarySource && <span className="summary-source">来源 {displaySummarySource}</span>}
+          {summaryModel && <span className="summary-model">模型 {summaryModel}</span>}
           <span className="summary-spacer" />
           <button
             className="link"
             onClick={regenerate}
             disabled={summaryBusy}
-            title="调用 Haiku 重新生成摘要"
+            title="重新生成摘要"
           >
             {summaryBusy ? "生成中…" : summary ? "重新生成" : "生成摘要"}
           </button>
@@ -138,7 +155,7 @@ export function TurnCard({ turn, scope, onDelete, onAddTag, onRemoveTag }: Props
         {summary ? (
           <Markdown text={summary} />
         ) : (
-          <div className="empty">暂无摘要（可点击"生成摘要"调用 Haiku 生成）</div>
+          <div className="empty">暂无摘要（可点击"生成摘要"生成）</div>
         )}
       </div>
 
@@ -165,9 +182,9 @@ export function TurnCard({ turn, scope, onDelete, onAddTag, onRemoveTag }: Props
 
       <div className="tags-row">
         {turn.tags.map((t) => (
-          <span key={t} className="tag-chip">
-            #{t}
-            <button title="remove tag" onClick={() => onRemoveTag(t)}>
+          <span key={`${t.kind}:${t.name}`} className="tag-chip" title={`${t.source} tag`}>
+            {tagLabel(t)}
+            <button title="remove tag" onClick={() => onRemoveTag(t.name)}>
               ×
             </button>
           </span>

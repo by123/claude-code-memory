@@ -1236,4 +1236,9 @@ button { font-family: inherit; }
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
 }
+.summary-source {
+  color: var(--text-soft);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
 .summary-spacer { flex: 1; }

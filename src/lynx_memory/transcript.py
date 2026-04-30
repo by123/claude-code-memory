@@ -253,11 +253,19 @@ def persist_last_turn(
     if require_prose and not had_prose:
         return ""
 
-    user_text = user_text[:8000]
-    asst_text = asst_text[:12000]
-
     data_dir = resolve_data_dir(cwd)
     state_path = paths_for(data_dir)["state_path"]
+
+    # Fast path: if state file already records this assistant uuid as
+    # persisted, skip opening the DB entirely. Both hooks (Stop and
+    # on_prompt) end up here; the second call should be a no-op when the
+    # first already wrote the turn.
+    state = _load_state(state_path)
+    if state.get(session_id) == a_uuid:
+        return "skip"
+
+    user_text = user_text[:8000]
+    asst_text = asst_text[:12000]
 
     mem = Memory(data_dir=data_dir)
     try:
@@ -273,9 +281,6 @@ def persist_last_turn(
             spawn_background(str(data_dir), turn_id)
         except Exception:
             pass
-
-    if action in ("insert", "update"):
-        state = _load_state(state_path)
         state[session_id] = a_uuid
         _save_state(state_path, state)
     return action

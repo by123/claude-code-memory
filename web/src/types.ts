@@ -1,6 +1,13 @@
 export type Scope = "project" | "global";
 export type SearchMode = "keyword" | "semantic";
 
+export interface TagAttachment {
+  name: string;
+  kind: "user" | "project" | "module" | "custom" | string;
+  source: "auto" | "manual" | string;
+  confidence?: number | null;
+}
+
 export interface Turn {
   id: string;
   session_id: string;
@@ -8,10 +15,11 @@ export interface Turn {
   cwd?: string | null;
   user_msg: string;
   assistant_msg: string;
-  tags: string[];
+  tags: TagAttachment[];
   score?: number | null;
   retrieval_count?: number;
   summary?: string | null;
+  summary_source?: string | null;
   summary_model?: string | null;
   summary_ts?: number | null;
 }
@@ -69,6 +77,7 @@ export interface ScopesResponse {
 
 export interface TagInfo {
   name: string;
+  kind: string;
   count: number;
   created_at?: number;
 }
