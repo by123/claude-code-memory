@@ -242,14 +242,23 @@ rm -rf ~/.claude/lynx-memory            # 直接 rm（不可逆）
 - [x] **项目级 / 全局双层存储**
   默认全局共享，进入含 `.lynx-memory/` 标记的项目目录后自动切换到项目级，避免不同项目的历史互相污染。在项目根目录运行 `lynx-memory init-project` 创建标记。检索支持 `scope=auto|project|global|merged`（hooks 通过 `LYNX_MEMORY_SCOPE` 环境变量切换；MCP 工具直接传 `scope` 参数）。
 
-- [ ] **多 CLI 客户端支持**
-  在现有 Claude Code 基础上扩展到 **Cursor CLI、Codex CLI、Gemini CLI**，提供 `lynx-memory install --client <name>` 一键写入 MCP 配置，并附带强制召回的 rules 模板，确保各客户端都能稳定触发记忆查询。
+- [x] **Codex CLI** — 已通过 hooks 接入，与 Claude Code 共用同一套存储；使用 `lynx-memory init --target codex`（或 `--target all`）。详见上文「Codex CLI（跨宿主记忆）」一节。
+
+- [x] **本地 Web UI 记忆浏览器**
+  基于 FastAPI + React 的本地可视化界面，支持翻页浏览、关键字 / 语义搜索、单条删除、打标签（如 `#work` `#personal`）等操作。通过 slash 命令 `/lynx-memory-history`（或 `lynx-memory web`）打开，页面同时展示项目级与全局的历史对话，可一键切换。
+
+- [ ] **其他 CLI（Cursor、Gemini CLI 等）** — 尚未接入。**Cursor**：需等待官方开放可用的 hooks 能力后再对接（当前策略是先等 hook）；在此之前仍可按需使用 MCP 等方式。
+- [ ] **统一多客户端安装器**
+  未来提供 `lynx-memory install --client <name>` 一键写入 MCP 配置，并为支持的客户端附带强制召回的 rules 模板。
 
 - [ ] **记忆导入 / 导出与跨设备同步**
   提供 `lynx-memory export` / `import` 命令，支持 JSONL 格式备份与恢复；配合 iCloud / Dropbox / Git 仓库放置 `db/` 目录，或内置 `lynx-memory sync` 子命令，实现多台设备记忆共享。
 
-- [x] **本地 Web UI 记忆浏览器**
-  基于 FastAPI + React 的本地可视化界面，支持翻页浏览、关键字 / 语义搜索、单条删除、打标签（如 `#work` `#personal`）等操作。通过 slash 命令 `/lynx-memory-history`（或 `lynx-memory web`）打开，页面同时展示项目级与全局的历史对话，可一键切换。
+- [ ] **更强的自动打标签（精准 / 联想）**
+  在现有规则式 `retag` 与类型化标签体系之上，增强对对话的自动打标能力；支持在 **精准模式**（紧贴字面、便于核对）与 **联想模式**（更宽关联、利于语义召回）之间切换。
+
+- [ ] **召回模式与可配置优先级**
+  在纯语义相似度之外，支持按 **召回次数**、**最相关**（相似度得分）、**最近使用**（最近命中/注入）等信号组合排序；提供预设模板，并允许手动调节权重或优先级规则。
 
 ## 协议
 

@@ -231,21 +231,33 @@ rm -rf ~/.claude/lynx-memory            # nuke directly (irreversible)
   `scope=auto|project|global|merged` (hooks via `LYNX_MEMORY_SCOPE` env;
   MCP tools accept a `scope` argument).
 
-- [ ] **Multi-CLI client support**
-  Extend beyond Claude Code to **Cursor CLI, Codex CLI, Gemini CLI**. Provide
-  `lynx-memory install --client <name>` to write MCP configs in one shot,
-  with rules templates that force consistent recall on each client.
-
-- [ ] **Import / export & cross-device sync**
-  `lynx-memory export` / `import` for JSONL backup and restore; place `db/`
-  in iCloud / Dropbox / a Git repo, or use a built-in `lynx-memory sync`
-  subcommand to share memory across machines.
+- [x] **Codex CLI** — same hooks + shared store; use `lynx-memory init --target codex` (or `--target all`). See [Codex CLI](#codex-cli-cross-host-memory) above.
 
 - [x] **Local Web UI memory browser**
   A local FastAPI + React UI with paging, keyword / semantic search,
   single-turn deletion, and tagging (e.g. `#work`, `#personal`). Launch with
   `/lynx-memory-history` (or `lynx-memory web`); the page exposes both
   project-level and global histories with a one-click scope toggle.
+
+- [ ] **Other CLIs (Cursor, Gemini CLI, …)** — not integrated yet. **Cursor**: blocked until a stable hooks surface ships (we plan to adopt it once available); meanwhile MCP-only workflows remain possible where applicable.
+- [ ] **Unified multi-client installer**
+  A future `lynx-memory install --client <name>` to write MCP configs in one shot,
+  with rules templates for consistent recall across clients that support them.
+
+- [ ] **Import / export & cross-device sync**
+  `lynx-memory export` / `import` for JSONL backup and restore; place `db/`
+  in iCloud / Dropbox / a Git repo, or use a built-in `lynx-memory sync`
+  subcommand to share memory across machines.
+
+- [ ] **Richer automatic tagging (precise vs associative)**
+  Stronger auto-labeling for turns, with a switchable **precise** mode
+  (tight, literal, auditable tags) vs **associative** mode (broader links
+  and softer clusters to improve semantic recall).
+
+- [ ] **Recall modes & tunable ranking**
+  Let users steer what gets injected beyond raw similarity — combine signals such as
+  **retrieval / hit count**, **relevance score**, and **recency** (last used or last
+  injected), with presets or manual weighting so priority matches your workflow.
 
 ## License
 
