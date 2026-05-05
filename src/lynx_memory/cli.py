@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import sqlite3
+import subprocess
 import sys
 import time
 from importlib import resources
@@ -69,6 +70,68 @@ def _print_warn(msg: str) -> None:
 
 def _print_err(msg: str) -> None:
     print(f"  ✗ {msg}", file=sys.stderr)
+
+
+def _build_web_ui() -> bool:
+    """Build the web UI if the web/ directory is present and not already built.
+
+    Returns True if web UI is available (either was built or was already built),
+    False if web/ directory does not exist or build failed.
+    """
+    repo_root = Path(__file__).parent.parent.parent
+    web_dir = repo_root / "web"
+    if not web_dir.is_dir():
+        _print_warn("web/ directory not found — skipping web UI build")
+        return False
+
+    assets_web = Path(__file__).parent / "assets" / "web"
+    index_html = assets_web / "index.html"
+    if index_html.exists():
+        _print_ok("Web UI already built")
+        return True
+
+    node_modules = web_dir / "node_modules"
+    if not node_modules.is_dir():
+        _print_warn("web/node_modules not found — running npm install...")
+        try:
+            result = subprocess.run(
+                ["npm", "install"],
+                cwd=str(web_dir),
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            if result.returncode != 0:
+                _print_err(f"npm install failed: {result.stderr.strip()}")
+                return False
+            _print_ok("npm install completed")
+        except subprocess.TimeoutExpired:
+            _print_err("npm install timed out (5 min)")
+            return False
+        except FileNotFoundError:
+            _print_err("npm not found — install Node.js to build web UI")
+            return False
+
+    _print_ok("Building web UI...")
+    try:
+        result = subprocess.run(
+            ["npm", "run", "build"],
+            cwd=str(web_dir),
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            _print_err(f"npm run build failed: {result.stderr.strip()}")
+            return False
+        _print_ok("Web UI built successfully")
+        return True
+    except subprocess.TimeoutExpired:
+        _print_err("npm run build timed out (2 min)")
+        return False
+    except FileNotFoundError:
+        _print_err("npm not found — install Node.js to build web UI")
+        return False
 
 
 def _read_settings() -> dict:
@@ -931,11 +994,34 @@ def cmd_web(args: argparse.Namespace) -> int:
         )
         return 1
 
+    # Build web UI before starting server
+    web_ok = _build_web_ui()
+    if not web_ok:
+        _print_err("Web UI build failed. Cannot start web server.")
+        return 1
+
     host = args.host
     port = args.port
-    if port == 0:
+
+    import socket
+    if port != 0:
+        # Find the next available port starting from the requested port
+        original_port = port
+        while True:
+            test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            test_sock.settimeout(1)
+            result = test_sock.connect_ex((host, port))
+            test_sock.close()
+            if result != 0:
+                break  # Port is free
+            if port - original_port >= 100:
+                _print_err(f"No available port found after {original_port}")
+                return 1
+            port += 1
+        if port != original_port:
+            _print_warn(f"Port {original_port} is in use, using {port} instead")
+    else:
         # Pre-bind to grab a free port so we can print/open it before uvicorn starts.
-        import socket
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind((host, 0))
             port = s.getsockname()[1]
