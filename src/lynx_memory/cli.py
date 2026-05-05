@@ -75,20 +75,22 @@ def _print_err(msg: str) -> None:
 def _build_web_ui() -> bool:
     """Build the web UI if the web/ directory is present and not already built.
 
-    Returns True if web UI is available (either was built or was already built),
-    False if web/ directory does not exist or build failed.
+    For pip-installed packages, use the pre-built assets from the package.
+    For development, try to build from the web/ directory.
     """
-    repo_root = Path(__file__).parent.parent.parent
-    web_dir = repo_root / "web"
-    if not web_dir.is_dir():
-        _print_warn("web/ directory not found — skipping web UI build")
-        return False
-
+    # First check if pre-built assets are available (pip install path)
     assets_web = Path(__file__).parent / "assets" / "web"
     index_html = assets_web / "index.html"
     if index_html.exists():
-        _print_ok("Web UI already built")
+        _print_ok("Web UI ready (pre-built)")
         return True
+
+    # Development mode: try to build from web/ directory
+    repo_root = Path(__file__).parent.parent.parent
+    web_dir = repo_root / "web"
+    if not web_dir.is_dir():
+        _print_warn("web/ directory not found — Web UI not available")
+        return False
 
     node_modules = web_dir / "node_modules"
     if not node_modules.is_dir():
