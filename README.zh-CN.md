@@ -108,6 +108,8 @@ lynx-memory uninstall      卸载 hooks 与 slash 命令（保留数据）
 
 ## Web UI
 
+![OpenLynx Web UI](./docs/assets/web.png)
+
 在 Claude Code 里输 `/lynx-memory-history`（或直接跑 `lynx-memory web`），
 会在 `127.0.0.1` 启动一个 FastAPI + React 的本地服务并自动开浏览器。在页面里你可以：
 

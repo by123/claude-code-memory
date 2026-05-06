@@ -114,6 +114,8 @@ for your approval before any write or destructive action.
 
 ## Web UI
 
+![OpenLynx Web UI](./docs/assets/web.png)
+
 Type `/lynx-memory-history` in Claude Code (or run `lynx-memory web`) to
 launch a local FastAPI + React UI on `127.0.0.1`. The page opens automatically
 in your browser and lets you:
