@@ -96,7 +96,7 @@ def _codex_text(content) -> tuple:
 
 
 def _codex_apply_patch_text(payload: dict) -> str:
-    """Return full patch text for Codex apply_patch tool calls."""
+    """Return apply_patch tool calls as readable Markdown diff blocks."""
     if payload.get("name") != "apply_patch":
         return ""
 
@@ -108,7 +108,7 @@ def _codex_apply_patch_text(payload: dict) -> str:
     text = str(raw or "").strip()
     if not text:
         return ""
-    return f"[tool: apply_patch]\n{text}"
+    return f"**Tool: apply_patch**\n\n```diff\n{text}\n```"
 
 
 def find_last_turn_codex(msgs: list) -> tuple:

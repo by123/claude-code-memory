@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "../api";
@@ -20,7 +21,41 @@ function fmtTs(ts: number): string {
   }
 }
 
+function normalizeToolMarkdown(text: string): string {
+  return text.replace(
+    /(^|\n)\[tool: apply_patch\]\n([\s\S]*?\*\*\* End Patch)/g,
+    (_match, prefix: string, patch: string) =>
+      `${prefix}**Tool: apply_patch**\n\n\`\`\`diff\n${patch.trim()}\n\`\`\``,
+  );
+}
+
+function DiffCode({ children }: { children: ReactNode }) {
+  const text = String(children).replace(/\n$/, "");
+  return (
+    <code className="diff-code">
+      {text.split("\n").map((line, i) => {
+        const kind =
+          line.startsWith("+") && !line.startsWith("+++")
+            ? "added"
+            : line.startsWith("-") && !line.startsWith("---")
+              ? "removed"
+              : line.startsWith("@@")
+                ? "hunk"
+                : line.startsWith("***")
+                  ? "meta"
+                  : "context";
+        return (
+          <span key={i} className={`diff-line ${kind}`}>
+            {line || " "}
+          </span>
+        );
+      })}
+    </code>
+  );
+}
+
 function Markdown({ text }: { text: string }) {
+  const normalized = normalizeToolMarkdown(text);
   return (
     <div className="md">
       <ReactMarkdown
@@ -29,9 +64,19 @@ function Markdown({ text }: { text: string }) {
           a: ({ node, ...props }) => (
             <a {...props} target="_blank" rel="noreferrer noopener" />
           ),
+          code: ({ node, className, children, ...props }) => {
+            if (className?.includes("language-diff")) {
+              return <DiffCode>{children}</DiffCode>;
+            }
+            return (
+              <code className={className} {...props}>
+                {children}
+              </code>
+            );
+          },
         }}
       >
-        {text}
+        {normalized}
       </ReactMarkdown>
     </div>
   );

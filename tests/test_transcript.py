@@ -55,9 +55,11 @@ class CodexTranscriptTest(unittest.TestCase):
         self.assertEqual(asst_uuid, "turn-1:assistant")
         self.assertTrue(had_prose)
         self.assertIn("I will patch it.", asst_text)
-        self.assertIn("[tool: apply_patch]", asst_text)
+        self.assertIn("**Tool: apply_patch**", asst_text)
+        self.assertIn("```diff", asst_text)
         self.assertIn("*** Update File: VideoContentCollectionViewCell.swift", asst_text)
         self.assertIn("+    guard let videoPlayerView else { return }", asst_text)
+        self.assertTrue(asst_text.rstrip().endswith("```"))
         self.assertIn("Patched.", asst_text)
 
 

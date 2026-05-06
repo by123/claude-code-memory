@@ -850,6 +850,51 @@ button { font-family: inherit; }
   white-space: pre;
 }
 
+.md pre .diff-code {
+  display: block;
+  min-width: max-content;
+}
+
+.diff-line {
+  display: block;
+  margin: 0 -14px;
+  padding: 0 14px;
+}
+
+.diff-line.removed {
+  color: #ff9a9a;
+  background: rgba(217, 107, 107, 0.12);
+}
+
+.diff-line.added {
+  color: #8fd19e;
+  background: rgba(86, 171, 108, 0.14);
+}
+
+.diff-line.hunk {
+  color: #9fb7ff;
+  background: rgba(138, 169, 214, 0.12);
+}
+
+.diff-line.meta {
+  color: var(--muted);
+}
+
+:root[data-theme="light"] .diff-line.removed {
+  color: #991b1b;
+  background: rgba(185, 28, 28, 0.08);
+}
+
+:root[data-theme="light"] .diff-line.added {
+  color: #166534;
+  background: rgba(22, 101, 52, 0.08);
+}
+
+:root[data-theme="light"] .diff-line.hunk {
+  color: #1d4ed8;
+  background: rgba(37, 99, 235, 0.08);
+}
+
 .md blockquote {
   margin: 8px 0;
   padding: 4px 14px;
