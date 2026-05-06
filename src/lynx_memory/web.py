@@ -227,19 +227,26 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail="summarizer disabled (SUMMARY_ENABLED=0)")
         with _memory_for(scope) as mem:
             t = mem.get_turn(turn_id)
-            if t is None:
-                raise HTTPException(status_code=404, detail="turn not found")
-            result = summarize_with_source(t["user_msg"], t["assistant_msg"])
-            if not result:
-                raise HTTPException(status_code=502, detail="summarizer failed (check ANTHROPIC_API_KEY)")
-            summary, source, used_model = result
-            mem.set_summary(turn_id, summary, source=source, model=used_model)
-            return {
-                "ok": True,
-                "summary": summary,
-                "summary_source": source,
-                "summary_model": used_model,
-            }
+        if t is None:
+            raise HTTPException(status_code=404, detail="turn not found")
+
+        # The summarizer can block on a CLI/SDK model call. Keep it outside the
+        # shared Memory lock so the rest of the Web UI can continue reading.
+        result = summarize_with_source(t["user_msg"], t["assistant_msg"])
+        if not result:
+            raise HTTPException(status_code=502, detail="summarizer failed (check ANTHROPIC_API_KEY)")
+        summary, source, used_model = result
+
+        with _memory_for(scope) as mem:
+            ok = mem.set_summary(turn_id, summary, source=source, model=used_model)
+        if not ok:
+            raise HTTPException(status_code=404, detail="turn not found")
+        return {
+            "ok": True,
+            "summary": summary,
+            "summary_source": source,
+            "summary_model": used_model,
+        }
 
     @app.get("/api/tags")
     def get_tags(scope: str = "global", kind: Optional[str] = None) -> list[dict]:
