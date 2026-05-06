@@ -95,6 +95,22 @@ def _codex_text(content) -> tuple:
     return "\n".join(text_parts), "\n".join(tool_parts)
 
 
+def _codex_apply_patch_text(payload: dict) -> str:
+    """Return full patch text for Codex apply_patch tool calls."""
+    if payload.get("name") != "apply_patch":
+        return ""
+
+    raw = payload.get("input")
+    if raw is None:
+        raw = payload.get("arguments")
+    if isinstance(raw, dict):
+        raw = raw.get("patch") or raw.get("input") or json.dumps(raw, ensure_ascii=False)
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    return f"[tool: apply_patch]\n{text}"
+
+
 def find_last_turn_codex(msgs: list) -> tuple:
     """Codex rollout JSONL → (user_text, user_uuid, asst_text, asst_uuid, had_prose).
 
@@ -157,20 +173,27 @@ def find_last_turn_codex(msgs: list) -> tuple:
         if m.get("type") != "response_item":
             continue
         p = m.get("payload") or {}
-        if p.get("type") != "message" or p.get("role") != "assistant":
+        payload_type = p.get("type")
+        if payload_type == "message" and p.get("role") == "assistant":
+            t, tools = _codex_text(p.get("content", ""))
+            if t:
+                text_parts.append(t)
+            if tools:
+                tool_parts.append(tools)
+            last_a_turn_id = p.get("turn_id") or last_user_turn_id
             continue
-        t, tools = _codex_text(p.get("content", ""))
-        if t:
-            text_parts.append(t)
-        if tools:
-            tool_parts.append(tools)
-        last_a_turn_id = p.get("turn_id") or last_user_turn_id
+
+        patch_text = _codex_apply_patch_text(p)
+        if patch_text:
+            tool_parts.append(patch_text)
+            last_a_turn_id = p.get("turn_id") or last_user_turn_id
 
     if last_a_turn_id is None:
         return None, None, None, None, False
 
     had_prose = bool(text_parts)
-    asst_text = "\n".join(text_parts) if had_prose else "\n".join(tool_parts)
+    asst_parts = text_parts + tool_parts if had_prose else tool_parts
+    asst_text = "\n\n".join(asst_parts)
     # Use `<turn_id>:user` / `<turn_id>:assistant` so both halves disambiguate
     # if two turns share an id (defensive — shouldn't happen).
     user_uuid = f"{last_user_turn_id}:user"
@@ -265,7 +288,6 @@ def persist_last_turn(
         return "skip"
 
     user_text = user_text[:8000]
-    asst_text = asst_text[:12000]
 
     mem = Memory(data_dir=data_dir)
     try:

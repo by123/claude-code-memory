@@ -57,6 +57,23 @@ export default function App() {
     refreshTags(scope);
   }, [scope, scopes]);
 
+  const projectRoot = useMemo(() => {
+    const dir = scopes?.project_dir?.replace(/[\\/]+$/, "");
+    if (!dir) return "";
+    return dir.endsWith(`${dir.includes("\\") ? "\\" : "/"}.lynx-memory`)
+      ? dir.replace(/[\\/]\.lynx-memory$/, "")
+      : dir;
+  }, [scopes?.project_dir]);
+
+  const projectName = useMemo(() => {
+    if (!projectRoot) return "";
+    return projectRoot.split(/[\\/]/).pop() ?? "";
+  }, [projectRoot]);
+
+  useEffect(() => {
+    document.title = scope === "project" && projectName ? `Openlynx · ${projectName}` : "Openlynx";
+  }, [projectName, scope]);
+
   useEffect(() => {
     if (view !== "turns") return;
     if (!scopes) return;
@@ -158,7 +175,7 @@ export default function App() {
     }
   };
 
-  const projectPath = scopes?.project_dir ?? "no project marker found";
+  const projectPath = projectRoot || "no project marker found";
   const globalPath = scopes?.global_dir ?? "";
 
   return (
@@ -166,8 +183,7 @@ export default function App() {
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark" />
-          <span className="brand-name">lynx-memory</span>
-          <span className="brand-sub">history</span>
+          <span className="brand-name">Openlynx</span>
         </div>
 
         <div className="scope-switch" role="tablist" aria-label="scope">
@@ -180,7 +196,7 @@ export default function App() {
             }}
             data-tooltip={projectPath}
           >
-            <span className="scope-dot" /> Project
+            <span className="scope-dot" /> {projectName || "Project"}
           </button>
           <button
             className={`scope-btn${scope === "global" ? " active" : ""}`}

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openlynx"
-version = "0.2.1"
+version = "0.2.2"
 description = "OpenLynx — persistent semantic memory for Claude Code, Codex CLI and other coding agents. Auto-saves and recalls conversation history across sessions."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -59,3 +59,6 @@ include = [
     "LICENSE",
     "pyproject.toml",
 ]
+
+[tool.hatch.build.targets.sdist.force-include]
+"src/lynx_memory/assets/web" = "src/lynx_memory/assets/web"
