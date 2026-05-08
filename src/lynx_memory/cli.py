@@ -269,26 +269,81 @@ def _remove_codex_hook(payload: dict, event: str, command: str) -> bool:
 
 
 def _ensure_codex_feature_flag() -> bool:
-    """Make sure ~/.codex/config.toml has `[features] codex_hooks = true`.
+    """Make sure ~/.codex/config.toml has `[features] hooks = true`.
 
-    We do a minimal text-level merge: if the line is already present we leave
-    it alone; otherwise we append a `[features]` block. We never reformat the
-    rest of the file.
+    We do a minimal text-level merge: migrate the deprecated `codex_hooks`
+    flag when present, add `hooks` to an existing `[features]` block when
+    possible, and otherwise append a new block. We never reformat the rest of
+    the file.
     """
     CODEX_HOME.mkdir(parents=True, exist_ok=True)
     text = CODEX_CONFIG_PATH.read_text() if CODEX_CONFIG_PATH.exists() else ""
-    if "codex_hooks" in text:
+    lines = text.splitlines(keepends=True)
+    in_features = False
+    has_features = False
+    has_hooks = False
+    has_legacy_hooks = False
+    changed = False
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            in_features = stripped == "[features]"
+            has_features = has_features or in_features
+            continue
+        if not in_features or stripped.startswith("#"):
+            continue
+        key = stripped.split("=", 1)[0].strip() if "=" in stripped else ""
+        if key == "hooks":
+            has_hooks = True
+        elif key == "codex_hooks":
+            has_legacy_hooks = True
+
+    if has_hooks and not has_legacy_hooks:
         return False
+
+    if has_features:
+        out = []
+        in_features = False
+        inserted = False
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                if in_features and not has_hooks and not inserted:
+                    out.append("hooks = true\n")
+                    inserted = True
+                    changed = True
+                in_features = stripped == "[features]"
+                out.append(line)
+                continue
+            if in_features and not stripped.startswith("#") and "=" in stripped:
+                key, rest = line.split("=", 1)
+                if key.strip() == "codex_hooks":
+                    changed = True
+                    if has_hooks:
+                        continue
+                    out.append(f"{key.replace('codex_hooks', 'hooks')}={rest}")
+                    has_hooks = True
+                    continue
+            out.append(line)
+        if in_features and not has_hooks and not inserted:
+            out.append("hooks = true\n")
+            changed = True
+        new_text = "".join(out)
+    else:
+        suffix = "\n" if text and not text.endswith("\n") else ""
+        new_text = f"{text}{suffix}\n[features]\nhooks = true\n"
+        changed = True
+
     bak = None
-    if CODEX_CONFIG_PATH.exists():
-        bak = CODEX_CONFIG_PATH.with_suffix(f".toml.bak.{int(time.time())}")
-        shutil.copy2(CODEX_CONFIG_PATH, bak)
-    suffix = "\n" if text and not text.endswith("\n") else ""
-    addition = f"{suffix}\n[features]\ncodex_hooks = true\n"
-    CODEX_CONFIG_PATH.write_text(text + addition)
+    if changed:
+        if CODEX_CONFIG_PATH.exists():
+            bak = CODEX_CONFIG_PATH.with_suffix(f".toml.bak.{int(time.time())}")
+            shutil.copy2(CODEX_CONFIG_PATH, bak)
+        CODEX_CONFIG_PATH.write_text(new_text)
     if bak:
         _print_ok(f"Backed up config.toml → {bak.name}")
-    return True
+    return changed
 
 
 def _ensure_env_file() -> bool:
@@ -367,9 +422,9 @@ def _install_codex() -> None:
     print(f"  config:   {CODEX_CONFIG_PATH}")
 
     if _ensure_codex_feature_flag():
-        _print_ok(f"Enabled `[features] codex_hooks = true` in {CODEX_CONFIG_PATH.name}")
+        _print_ok(f"Enabled `[features] hooks = true` in {CODEX_CONFIG_PATH.name}")
     else:
-        _print_ok("`codex_hooks` already enabled")
+        _print_ok("`hooks` already enabled")
 
     payload = _read_codex_hooks()
     changed = False

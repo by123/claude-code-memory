@@ -68,7 +68,7 @@ Same memory store, also wired into [Codex CLI](https://developers.openai.com/cod
 lynx-memory init --target codex   # or --target all to install both
 ```
 
-This writes `~/.codex/hooks.json`, sets `[features] codex_hooks = true` in
+This writes `~/.codex/hooks.json`, sets `[features] hooks = true` in
 `~/.codex/config.toml`, and registers three hooks (`UserPromptSubmit` →
 inject, `Stop` → persist, `SessionStart` → summarize the previous session
 since Codex has no `SessionEnd` event).

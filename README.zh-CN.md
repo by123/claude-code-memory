@@ -63,7 +63,7 @@ lynx-memory init --target codex   # 或 --target all 同时安装两边
 ```
 
 会写入 `~/.codex/hooks.json`，在 `~/.codex/config.toml` 设置
-`[features] codex_hooks = true`，并注册三个 hook（`UserPromptSubmit` →
+`[features] hooks = true`，并注册三个 hook（`UserPromptSubmit` →
 注入；`Stop` → 持久化；`SessionStart` → 给上一段会话生成摘要，
 因为 Codex 没有 `SessionEnd` 事件）。
 
