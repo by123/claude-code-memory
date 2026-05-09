@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "../api";
 import type { Scope, TagAttachment, Turn, TurnRetrievalsResponse } from "../types";
+import { parseLocalFileTarget, sanitizeMarkdownHref } from "../utils/linkSanitizer";
 
 interface Props {
   turn: Turn;
@@ -61,9 +62,24 @@ function Markdown({ text }: { text: string }) {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          a: ({ node, ...props }) => (
-            <a {...props} target="_blank" rel="noreferrer noopener" />
-          ),
+          a: ({ node, ...props }) => {
+            const localTarget = parseLocalFileTarget(props.href);
+            return (
+              <a
+                {...props}
+                href={sanitizeMarkdownHref(props.href)}
+                target="_blank"
+                rel="noreferrer noopener"
+                onClick={(e) => {
+                  if (!localTarget) return;
+                  e.preventDefault();
+                  api.openFile(localTarget.path, localTarget.line).catch((err) => {
+                    alert(`Open file failed: ${err}`);
+                  });
+                }}
+              />
+            );
+          },
           code: ({ node, className, children, ...props }) => {
             if (className?.includes("language-diff")) {
               return <DiffCode>{children}</DiffCode>;

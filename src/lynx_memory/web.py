@@ -4,19 +4,32 @@ Run with `lynx-memory web`.
 """
 from __future__ import annotations
 
+import logging
+import os
 import sqlite3
+import subprocess
+import sys
+import time
 from contextlib import contextmanager
 from importlib import resources
 from pathlib import Path
 from typing import Iterator, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .config import GLOBAL_DATA_DIR, find_project_root, load_env
 from .storage import Memory, get_shared_memory, memory_lock
+
+logger = logging.getLogger("lynx_memory.web")
+if not logging.getLogger().handlers:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s | %(message)s",
+    )
+logger.setLevel(logging.INFO)
 
 
 def _scope_dir(scope: str) -> Optional[Path]:
@@ -72,6 +85,24 @@ class TagBody(BaseModel):
     kind: str = "custom"
 
 
+class OpenFileBody(BaseModel):
+    path: str
+    line: Optional[int] = None
+
+
+def _try_open_with_command(cmd: list[str]) -> bool:
+    try:
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
 def _attach_retrieval_counts(mem: Memory, items: list) -> None:
     if not items:
         return
@@ -83,6 +114,34 @@ def _attach_retrieval_counts(mem: Memory, items: list) -> None:
 def create_app() -> FastAPI:
     load_env()
     app = FastAPI(title="lynx-memory web")
+    logger.info("web app init cwd=%s", Path.cwd())
+
+    @app.middleware("http")
+    async def log_api_requests(request: Request, call_next):
+        if not request.url.path.startswith("/api/"):
+            return await call_next(request)
+        started = time.perf_counter()
+        logger.info("api request %s %s", request.method, request.url.path)
+        try:
+            response = await call_next(request)
+        except Exception:
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            logger.exception(
+                "api error %s %s (%.1fms)",
+                request.method,
+                request.url.path,
+                elapsed_ms,
+            )
+            raise
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        logger.info(
+            "api response %s %s -> %s (%.1fms)",
+            request.method,
+            request.url.path,
+            response.status_code,
+            elapsed_ms,
+        )
+        return response
 
     @app.get("/api/scopes")
     def get_scopes() -> dict:
@@ -252,6 +311,47 @@ def create_app() -> FastAPI:
     def get_tags(scope: str = "global", kind: Optional[str] = None) -> list[dict]:
         with _memory_for(scope) as mem:
             return mem.list_tags(kind=kind)
+
+    @app.post("/api/open-file")
+    def open_file(body: OpenFileBody) -> dict:
+        raw = body.path.strip()
+        if not raw:
+            logger.warning("open-file rejected: empty path")
+            raise HTTPException(status_code=400, detail="empty path")
+        target = Path(raw).expanduser()
+        if not target.is_absolute():
+            logger.warning("open-file rejected: non-absolute path=%s", raw)
+            raise HTTPException(status_code=400, detail="path must be absolute")
+        if not target.exists() or not target.is_file():
+            logger.warning("open-file rejected: missing file path=%s", target)
+            raise HTTPException(status_code=404, detail=f"file not found: {target}")
+
+        line = body.line if (body.line is not None and body.line > 0) else None
+        logger.info("open-file request path=%s line=%s", target, line)
+        if sys.platform == "darwin":
+            try:
+                subprocess.Popen(["open", str(target)])
+                logger.info("open-file success method=open path=%s", target)
+                return {"ok": True, "method": "open", "path": str(target), "line": line}
+            except Exception as e:
+                logger.exception("open-file failed method=open path=%s", target)
+                raise HTTPException(status_code=500, detail=f"failed to open file: {e}") from e
+
+        if os.name == "nt":
+            try:
+                os.startfile(str(target))  # type: ignore[attr-defined]
+                logger.info("open-file success method=startfile path=%s", target)
+                return {"ok": True, "method": "startfile", "path": str(target), "line": line}
+            except Exception as e:
+                logger.exception("open-file failed method=startfile path=%s", target)
+                raise HTTPException(status_code=500, detail=f"failed to open file: {e}") from e
+
+        if _try_open_with_command(["xdg-open", str(target)]):
+            logger.info("open-file success method=xdg-open path=%s", target)
+            return {"ok": True, "method": "xdg-open", "path": str(target), "line": line}
+
+        logger.error("open-file failed: no available opener path=%s", target)
+        raise HTTPException(status_code=500, detail="no available opener on this system")
 
     static_dir = _static_dir()
     if static_dir is not None:

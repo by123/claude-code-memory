@@ -80,4 +80,11 @@ export const api = {
       `/api/turns/${scope}/${id}/summary`,
       { method: "POST" },
     ),
+
+  openFile: (path: string, line?: number) =>
+    jsonFetch<{ ok: true; method: string; path: string; line: number | null }>("/api/open-file", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path, line }),
+    }),
 };

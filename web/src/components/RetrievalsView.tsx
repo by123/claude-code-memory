@@ -1,10 +1,33 @@
 import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "../api";
 import type { RetrievalDetail, RetrievalSummary, Scope, Turn } from "../types";
+import { parseLocalFileTarget, sanitizeMarkdownHref } from "../utils/linkSanitizer";
 
 const PAGE_SIZE = 15;
+
+const markdownComponents: Components = {
+  a: ({ node, ...props }) => {
+    const localTarget = parseLocalFileTarget(props.href);
+    return (
+      <a
+        {...props}
+        href={sanitizeMarkdownHref(props.href)}
+        target="_blank"
+        rel="noreferrer noopener"
+        onClick={(e) => {
+          if (!localTarget) return;
+          e.preventDefault();
+          api.openFile(localTarget.path, localTarget.line).catch((err) => {
+            alert(`Open file failed: ${err}`);
+          });
+        }}
+      />
+    );
+  },
+};
 
 function fmtTs(ts: number): string {
   try {
@@ -66,7 +89,7 @@ function RetrievalDetailPanel({ scope, retrievalId }: DetailProps) {
                 <div className="hit-snippet">
                   <strong>A: </strong>
                   <span className="md inline">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
                       {clip(h.turn.assistant_msg, 360)}
                     </ReactMarkdown>
                   </span>
@@ -110,7 +133,9 @@ function TurnModal({ turn, onClose }: { turn: Turn; onClose: () => void }) {
           <div className="bubble">
             <div className="bubble-head">User</div>
             <div className="md">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{turn.user_msg}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                {turn.user_msg}
+              </ReactMarkdown>
             </div>
           </div>
         </div>
@@ -121,7 +146,9 @@ function TurnModal({ turn, onClose }: { turn: Turn; onClose: () => void }) {
           <div className="bubble">
             <div className="bubble-head">Assistant</div>
             <div className="md">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{turn.assistant_msg}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                {turn.assistant_msg}
+              </ReactMarkdown>
             </div>
           </div>
         </div>
@@ -283,7 +310,7 @@ export function RetrievalsView({ scope, scopesReady = true }: Props) {
                   <div className="bubble">
                     <div className="bubble-head">Prompt</div>
                     <div className="md">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
                         {open ? r.prompt : clip(r.prompt, 320)}
                       </ReactMarkdown>
                     </div>
