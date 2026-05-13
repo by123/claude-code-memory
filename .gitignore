@@ -18,5 +18,6 @@ src/lynx_memory/assets/web/
 .playwright-mcp/
 lynx-memory-webui*.png
 .lynx-memory/
-.claude/
+.claude/*
+!.claude/commands
 CLAUDE.md

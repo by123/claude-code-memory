@@ -623,6 +623,11 @@ def cmd_init_project(args: argparse.Namespace) -> int:
         gitignore.write_text("*\n!.gitignore\n")
         _print_ok(f"Wrote {gitignore} (project memory is git-ignored by default)")
 
+    project_commands_dir = target / ".claude" / "commands"
+    for name in SLASH_COMMAND_NAMES:
+        if _install_slash_command(name, project_commands_dir):
+            _print_ok(f"Installed slash command: /{name[:-3]} → {project_commands_dir / name}")
+
     print()
     print(f"Project memory will live in: {marker}")
     print("Run inside this directory:  lynx-memory status")
@@ -699,14 +704,15 @@ def _read_bundled_command(name: str) -> str:
     )
 
 
-def _install_slash_command(name: str) -> bool:
-    """Copy a bundled slash command into ~/.claude/commands/.
+def _install_slash_command(name: str, target_dir: Path | None = None) -> bool:
+    """Copy a bundled slash command into target_dir (default: ~/.claude/commands/).
 
     Returns True if a write happened, False if the existing file already matches.
     """
     src = _read_bundled_command(name)
-    CLAUDE_COMMANDS_DIR.mkdir(parents=True, exist_ok=True)
-    dst = CLAUDE_COMMANDS_DIR / name
+    dest_dir = target_dir or CLAUDE_COMMANDS_DIR
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dst = dest_dir / name
     if dst.exists() and dst.read_text(encoding="utf-8") == src:
         return False
     if dst.exists():
