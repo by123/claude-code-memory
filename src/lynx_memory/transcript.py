@@ -48,6 +48,83 @@ def extract_text(content) -> str:
     return str(content)
 
 
+def _first_present(d: dict, keys: tuple[str, ...]) -> str:
+    for key in keys:
+        value = d.get(key)
+        if value:
+            return str(value)
+    return ""
+
+
+def _markdown_code_block(text: str, lang: str = "") -> str:
+    fence = "```"
+    while fence in text:
+        fence += "`"
+    suffix = lang if lang else ""
+    return f"{fence}{suffix}\n{text}\n{fence}"
+
+
+def _prefixed_lines(text: str, prefix: str) -> list[str]:
+    lines = str(text).splitlines()
+    if not lines:
+        return [prefix]
+    return [f"{prefix}{line}" for line in lines]
+
+
+def _edit_diff(old_text: str, new_text: str) -> str:
+    lines = _prefixed_lines(old_text, "-") + _prefixed_lines(new_text, "+")
+    return _markdown_code_block("\n".join(lines), "diff")
+
+
+def _write_diff(content: str) -> str:
+    return _markdown_code_block("\n".join(_prefixed_lines(content, "+")), "diff")
+
+
+def _format_claude_tool_use(block: dict) -> str:
+    """Return Claude Code tool calls with code-bearing inputs preserved."""
+    name = str(block.get("name") or "")
+    raw_input = block.get("input")
+    if not isinstance(raw_input, dict):
+        return f"[tool_use: {name}]"
+
+    title = f"**Tool: {name or 'tool_use'}**"
+    file_path = _first_present(raw_input, ("file_path", "path", "notebook_path"))
+    file_line = f"\nFile: `{file_path}`" if file_path else ""
+
+    if name in ("Write", "NotebookWrite"):
+        content = raw_input.get("content")
+        if content is not None:
+            return f"{title}{file_line}\n\n{_write_diff(str(content))}"
+
+    if name in ("Edit", "NotebookEdit"):
+        old = raw_input.get("old_string")
+        new = raw_input.get("new_string")
+        if old is not None or new is not None:
+            old_text = str(old or "")
+            new_text = str(new or "")
+            return f"{title}{file_line}\n\n{_edit_diff(old_text, new_text)}"
+
+    if name == "MultiEdit":
+        edits = raw_input.get("edits")
+        if isinstance(edits, list):
+            parts = [f"{title}{file_line}"]
+            for idx, edit in enumerate(edits, start=1):
+                if not isinstance(edit, dict):
+                    continue
+                old_text = str(edit.get("old_string") or "")
+                new_text = str(edit.get("new_string") or "")
+                parts.append(f"Edit {idx}\n\n{_edit_diff(old_text, new_text)}")
+            if len(parts) > 1:
+                return "\n\n".join(parts)
+
+    if name == "Bash":
+        command = raw_input.get("command")
+        if command:
+            return f"{title}\n\n{_markdown_code_block(str(command), 'bash')}"
+
+    return f"[tool_use: {name}]"
+
+
 def _extract_assistant(content) -> tuple:
     if isinstance(content, str):
         return content, ""
@@ -63,7 +140,7 @@ def _extract_assistant(content) -> tuple:
                 if txt:
                     text_parts.append(txt)
             elif t == "tool_use":
-                tool_parts.append(f"[tool_use: {block.get('name', '')}]")
+                tool_parts.append(_format_claude_tool_use(block))
     return "\n".join(text_parts), "\n".join(tool_parts)
 
 
@@ -236,7 +313,8 @@ def find_last_turn(msgs: list) -> tuple:
         return None, None, None, None, False
 
     had_prose = bool(text_parts)
-    asst_text = "\n".join(text_parts) if had_prose else "\n".join(tool_parts)
+    asst_parts = text_parts + tool_parts if had_prose else tool_parts
+    asst_text = "\n\n".join(asst_parts)
     return user_text, user_uuid, asst_text, last_a_uuid, had_prose
 
 

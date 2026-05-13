@@ -27,15 +27,24 @@ def _parse_target() -> str:
             return sys.argv[i + 1]
     return os.environ.get("LYNX_MEMORY_TARGET", "claude_code")
 
-SUMMARIZE_PROMPT = """You are summarizing a conversation between a user and Claude Code for a long-term memory system.
+SUMMARIZE_PROMPT = """You are an AI memory retrieval assistant. Extract memories worth preserving long-term from the following conversation.
 
-Produce a concise summary (under 250 words) capturing:
-- What the user was working on and the final outcome
-- Key decisions made and the reasoning behind them
-- Facts about the user, their project, or their environment worth remembering
-- Open questions or follow-ups
+Your goal is not to summarize everything, but to determine which information will still be valuable to the user in the future.
 
-Write in third person, plain prose, no headers. Be specific with names/paths/tools.
+Please adhere to the following rules:
+
+1. Only extract information that is useful in the long term.
+2. Do not save temporary states, one-off questions, or small talk with no long-term value.
+3. Do not save sensitive personal information unless explicitly requested by the user.
+4. Do not fabricate content that did not appear in the conversation.
+5. Each memory must be concise, clear, and retrievable in the future.
+6. If the information is only short-term task progress, mark it as temporary.
+7. If the information is user preferences, long-term rules, project background, technology stack, or business decisions, mark it as long_term.
+
+Produce a concise memory summary under 250 words.
+Use bullets prefixed with [long_term] or [temporary].
+Prefer user preferences, long-term rules, project background, technology stack, business decisions, final outcomes, and still-relevant follow-ups.
+Be specific with names, paths, tools, and decisions. Write in third person, plain prose, no extra headers.
 
 Conversation:
 {conversation}"""
@@ -45,6 +54,10 @@ DEFAULT_SUMMARY_MODEL = "claude-haiku-4-5-20251001"
 
 def _model() -> str:
     return os.environ.get("LYNX_MEMORY_SUMMARY_MODEL", DEFAULT_SUMMARY_MODEL)
+
+
+def _backend() -> str:
+    return os.environ.get("SUMMARY_BACKEND", "auto").strip().lower()
 
 
 def _summarize_via_cli(conversation: str) -> str:
@@ -86,12 +99,60 @@ def _summarize_via_sdk(conversation: str) -> str:
     return "".join(b.text for b in resp.content if getattr(b, "type", None) == "text").strip()
 
 
+def _summarize_via_openai(conversation: str) -> str:
+    key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if not key:
+        return ""
+    try:
+        from openai import OpenAI
+
+        kwargs = {
+            "api_key": key,
+            "base_url": os.environ.get("OPENAI_BASE_URL", "").strip() or "https://api.openai.com/v1",
+        }
+        client = OpenAI(**kwargs)
+        model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+        prompt = SUMMARIZE_PROMPT.format(conversation=conversation)
+        try:
+            resp = client.responses.create(
+                model=model,
+                input=prompt,
+                max_output_tokens=800,
+            )
+            return (resp.output_text or "").strip()
+        except Exception:
+            resp = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=800,
+            )
+            return (resp.choices[0].message.content or "").strip()
+    except Exception as e:
+        log(f"[on_session_end] OpenAI summary failed: {type(e).__name__}: {e}")
+        return ""
+
+
 def _summarize(conversation: str) -> str:
-    """Try CLI first, then SDK. Return empty string on failure (caller skips)."""
+    """Try the configured summary backend. Return empty string on failure."""
+    backend = _backend()
+    if backend == "openai":
+        out = _summarize_via_openai(conversation)
+        if out:
+            return out
+        return _summarize_via_sdk(conversation)
+    if backend == "sdk":
+        out = _summarize_via_sdk(conversation)
+        if out:
+            return out
+        return _summarize_via_openai(conversation)
+
     out = _summarize_via_cli(conversation)
     if out:
         return out
-    return _summarize_via_sdk(conversation)
+    out = _summarize_via_sdk(conversation)
+    if out:
+        return out
+    return _summarize_via_openai(conversation)
 
 
 def _main() -> int:
@@ -107,10 +168,10 @@ def _main() -> int:
     cwd = data.get("cwd") or ""
 
     try:
-        from ..config import load_env, resolve_data_dir
+        from ..config import GLOBAL_DATA_DIR, load_env, resolve_data_dir
         from ..storage import Memory
         data_dir = resolve_data_dir(cwd)
-        load_env(data_dir)
+        load_env(GLOBAL_DATA_DIR)
 
         mem = Memory(data_dir=data_dir)
 

@@ -90,6 +90,19 @@ class OpenFileBody(BaseModel):
     line: Optional[int] = None
 
 
+class SettingsBody(BaseModel):
+    summary_enabled: bool
+    top_k: int
+    min_score: float
+    scope: str
+    summary_model: str
+    summary_backend: str
+    anthropic_api_key: Optional[str] = None
+    openai_api_key: Optional[str] = None
+    openai_model: str = "gpt-4o-mini"
+    openai_base_url: str = ""
+
+
 def _try_open_with_command(cmd: list[str]) -> bool:
     try:
         result = subprocess.run(
@@ -279,8 +292,12 @@ def create_app() -> FastAPI:
 
     @app.post("/api/turns/{scope}/{turn_id}/summary")
     def regenerate_summary(scope: str, turn_id: str) -> dict:
-        from .summarizer import summarize_with_source
+        from .summarizer import last_error, summarize_with_source
         from .summarizer import is_enabled
+
+        # Summary provider settings are global, regardless of which memory
+        # store the turn belongs to.
+        load_env(GLOBAL_DATA_DIR)
 
         if not is_enabled():
             raise HTTPException(status_code=400, detail="summarizer disabled (SUMMARY_ENABLED=0)")
@@ -289,11 +306,19 @@ def create_app() -> FastAPI:
         if t is None:
             raise HTTPException(status_code=404, detail="turn not found")
 
-        # The summarizer can block on a CLI/SDK model call. Keep it outside the
+        # The summarizer can block on an API call. Keep it outside the
         # shared Memory lock so the rest of the Web UI can continue reading.
         result = summarize_with_source(t["user_msg"], t["assistant_msg"])
         if not result:
-            raise HTTPException(status_code=502, detail="summarizer failed (check ANTHROPIC_API_KEY)")
+            import os as _os
+            has_a = bool(_os.environ.get("ANTHROPIC_API_KEY", "").strip())
+            has_o = bool(_os.environ.get("OPENAI_API_KEY", "").strip())
+            if not has_a and not has_o:
+                detail = "no API key configured — set ANTHROPIC_API_KEY or OPENAI_API_KEY"
+            else:
+                err = last_error()
+                detail = f"summarizer call failed — {err}" if err else "summarizer call failed"
+            raise HTTPException(status_code=502, detail=detail)
         summary, source, used_model = result
 
         with _memory_for(scope) as mem:
@@ -306,6 +331,83 @@ def create_app() -> FastAPI:
             "summary_source": source,
             "summary_model": used_model,
         }
+
+    @app.get("/api/settings")
+    def get_settings() -> dict:
+        from dotenv import dotenv_values
+        env_file = GLOBAL_DATA_DIR / ".env"
+        stored = dotenv_values(str(env_file)) if env_file.exists() else {}
+
+        def _get(key: str, default: str) -> str:
+            return stored.get(key) or os.environ.get(key) or default
+
+        def _key_set(key: str) -> bool:
+            return bool(stored.get(key) or os.environ.get(key, "").strip())
+
+        raw_backend = _get("SUMMARY_BACKEND", "")
+        backend = raw_backend if raw_backend in ("sdk", "openai") else "sdk"
+        return {
+            "summary_enabled": _get("SUMMARY_ENABLED", "1") not in ("0", "false", "off", "no"),
+            "top_k": int(_get("TOP_K", "5")),
+            "min_score": float(_get("MIN_SCORE", "0.7")),
+            "scope": _get("LYNX_MEMORY_SCOPE", "auto"),
+            "summary_model": _get("SUMMARY_MODEL", "claude-haiku-4-5-20251001"),
+            "summary_backend": backend,
+            "anthropic_api_key_set": _key_set("ANTHROPIC_API_KEY"),
+            "openai_api_key_set": _key_set("OPENAI_API_KEY"),
+            "openai_model": _get("OPENAI_MODEL", "gpt-4o-mini"),
+            "openai_base_url": _get("OPENAI_BASE_URL", ""),
+        }
+
+    @app.put("/api/settings")
+    def put_settings(body: SettingsBody) -> dict:
+        from dotenv import set_key, unset_key
+        env_file = GLOBAL_DATA_DIR / ".env"
+        GLOBAL_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        if not env_file.exists():
+            env_file.touch()
+
+        set_key(str(env_file), "SUMMARY_ENABLED", "1" if body.summary_enabled else "0")
+        set_key(str(env_file), "TOP_K", str(max(1, min(50, body.top_k))))
+        set_key(str(env_file), "MIN_SCORE", f"{max(0.0, min(1.0, body.min_score)):.2f}")
+        set_key(str(env_file), "LYNX_MEMORY_SCOPE", body.scope)
+        set_key(str(env_file), "SUMMARY_MODEL", body.summary_model.strip())
+        set_key(str(env_file), "SUMMARY_BACKEND", body.summary_backend)
+        set_key(str(env_file), "OPENAI_MODEL", body.openai_model.strip() or "gpt-4o-mini")
+        openai_base_url = body.openai_base_url.strip()
+        if openai_base_url:
+            set_key(str(env_file), "OPENAI_BASE_URL", openai_base_url)
+        else:
+            unset_key(str(env_file), "OPENAI_BASE_URL")
+
+        os.environ["SUMMARY_ENABLED"] = "1" if body.summary_enabled else "0"
+        os.environ["TOP_K"] = str(max(1, min(50, body.top_k)))
+        os.environ["MIN_SCORE"] = f"{max(0.0, min(1.0, body.min_score)):.2f}"
+        os.environ["LYNX_MEMORY_SCOPE"] = body.scope
+        os.environ["SUMMARY_MODEL"] = body.summary_model.strip()
+        os.environ["SUMMARY_BACKEND"] = body.summary_backend
+        os.environ["OPENAI_MODEL"] = body.openai_model.strip() or "gpt-4o-mini"
+        if openai_base_url:
+            os.environ["OPENAI_BASE_URL"] = openai_base_url
+        else:
+            os.environ.pop("OPENAI_BASE_URL", None)
+
+        # API keys: only write when provided; empty string = clear the key
+        for env_key, value in [
+            ("ANTHROPIC_API_KEY", body.anthropic_api_key),
+            ("OPENAI_API_KEY", body.openai_api_key),
+        ]:
+            if value is None:
+                continue  # field not sent — leave unchanged
+            val = value.strip()
+            if val:
+                set_key(str(env_file), env_key, val)
+                os.environ[env_key] = val
+            else:
+                unset_key(str(env_file), env_key)
+                os.environ.pop(env_key, None)
+
+        return {"ok": True}
 
     @app.get("/api/tags")
     def get_tags(scope: str = "global", kind: Optional[str] = None) -> list[dict]:

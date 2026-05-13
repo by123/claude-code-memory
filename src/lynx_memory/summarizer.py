@@ -3,52 +3,51 @@
 Generates a compact summary for a single (user, assistant) turn so memory
 recall can inject summaries into context instead of full prose.
 
-Three backends:
-  1. CLI (claude, default): shell out to `claude -p --model <haiku>` and reuse the
-     user's already-authenticated Claude Code session. No extra API key needed.
-     We set LYNX_MEMORY_NO_HOOK=1 in the child so that our own hooks no-op.
-  2. CLI (codex, fallback): if `claude` CLI is missing but `codex` is available,
-     shell out to `codex exec --ephemeral`. Caveats:
-       - codex has no `--append-system-prompt`; the system instructions are
-         prepended to the user prompt body instead.
-       - codex routes to whatever provider/model is configured in
-         `~/.codex/config.toml`. SUMMARY_MODEL is IGNORED on this path — to
-         summarize with a specific model via codex, configure a codex profile.
-       - The summary is attributed as source="codex" with model=None, since
-         we cannot reliably know which provider codex picked.
-  3. SDK fallback: if both CLI tools are missing AND ANTHROPIC_API_KEY is set,
-     fall back to the Anthropic SDK with prompt caching.
+Backend selection (SUMMARY_BACKEND):
+  sdk    → Anthropic SDK (requires ANTHROPIC_API_KEY)
+  openai → OpenAI SDK    (requires OPENAI_API_KEY)
+  auto   → try Anthropic first if ANTHROPIC_API_KEY is set, else try OpenAI
+           if OPENAI_API_KEY is set (default when SUMMARY_BACKEND is unset)
 
-Defaults:
-  - SUMMARY_ENABLED=1 (set "0"/"false" to disable)
-  - SUMMARY_MODEL=claude-haiku-4-5-20251001  (claude CLI / SDK only)
-  - SUMMARY_BACKEND=auto | cli | sdk
+Env vars:
+  - SUMMARY_ENABLED=1          set "0"/"false" to disable
+  - SUMMARY_BACKEND            sdk | openai | auto  (default: auto)
+  - SUMMARY_MODEL              Anthropic model (default claude-haiku-4-5-20251001)
+  - ANTHROPIC_API_KEY          required for sdk backend
+  - OPENAI_API_KEY             required for openai backend
+  - OPENAI_MODEL               model for OpenAI backend (default gpt-4o-mini)
+  - OPENAI_BASE_URL            optional base URL for OpenAI-compatible APIs
 """
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
-import tempfile
-from functools import lru_cache
 from pathlib import Path
 from typing import Optional, Tuple
 
 DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 
-_SYSTEM = (
-    "You compress one User+Assistant turn into a short summary. "
-    "Write the summary in the SAME LANGUAGE as the original turn (do not translate).\n"
-    "1) First line: one sentence stating the user's question and the final conclusion/action.\n"
-    "2) Then 2-5 short bullet points preserving concrete details: file paths, function/variable names, "
-    "commands, numeric thresholds, reasons for decisions.\n"
-    "3) Do not repeat long sentences verbatim, no pleasantries, no extra headings; keep the total under "
-    "~400 characters (or ~120 English words).\n"
-    "Goal: future retrieval should be able to fully understand the facts and decisions of this turn from "
-    "the summary alone.\n"
-    "Output the summary body directly, with no surrounding explanation."
-)
+_SYSTEM = """You are an AI memory retrieval assistant. Extract memories worth preserving long-term from the following conversation.
+
+Your goal is not to summarize everything, but to determine which information will still be valuable to the user in the future.
+
+Please adhere to the following rules:
+
+1. Only extract information that is useful in the long term.
+2. Do not save temporary states, one-off questions, or small talk with no long-term value.
+3. Do not save sensitive personal information unless explicitly requested by the user.
+4. Do not fabricate content that did not appear in the conversation.
+5. Each memory must be concise, clear, and retrievable in the future.
+6. If the information is only short-term task progress, mark it as temporary.
+7. If the information is user preferences, long-term rules, project background, technology stack, or business decisions, mark it as long_term.
+
+Write the output in the SAME LANGUAGE as the original turn (do not translate).
+Start with one sentence stating the user's request and final outcome/action.
+Then include 2-5 short bullets. Prefix each bullet with [long_term] or [temporary].
+Preserve concrete details when useful for retrieval: file paths, function/variable names, commands, numeric thresholds, reasons for decisions.
+Do not repeat long sentences verbatim, no pleasantries, no extra headings; keep the total under ~400 characters (or ~120 English words).
+Output the memory summary body directly, with no surrounding explanation."""
 
 
 def is_enabled() -> bool:
@@ -64,130 +63,37 @@ def _backend() -> str:
     return os.environ.get("SUMMARY_BACKEND", "auto").strip().lower()
 
 
-def _claude_cli() -> Optional[str]:
-    return shutil.which("claude")
-
-
-def _codex_cli() -> Optional[str]:
-    return shutil.which("codex")
-
-
 SummaryResult = Tuple[str, str, Optional[str]]  # (summary, source, model)
+_LAST_ERROR = ""
 
 
 def _conversation_body(user_msg: str, assistant_msg: str) -> str:
     return f"User:\n{user_msg[:6000]}\n\n---\n\nAssistant:\n{assistant_msg[:10000]}"
 
 
-def _run_cli(
-    argv: list,
-    *,
-    source: str,
-    model: Optional[str],
-    output_file: Optional[str] = None,
-) -> Optional[SummaryResult]:
-    """Shell out to a CLI summarizer; collect stdout (or output_file) as text.
-
-    `output_file`, when given, is preferred over stdout (codex writes its
-    final message there, avoiding session-banner noise).
-    """
-    env = os.environ.copy()
-    env["LYNX_MEMORY_NO_HOOK"] = "1"
+def _log_failure(provider: str, exc: BaseException) -> None:
+    global _LAST_ERROR
+    cause = getattr(exc, "__cause__", None)
+    detail = f"{type(exc).__name__}: {exc}"
+    if cause:
+        detail = f"{detail}; cause={type(cause).__name__}: {cause}"
+    _LAST_ERROR = f"{provider} failed: {detail}"
     try:
-        proc = subprocess.run(
-            argv,
-            input="",
-            capture_output=True,
-            text=True,
-            timeout=int(os.environ.get("SUMMARY_TIMEOUT", "60")),
-            env=env,
-        )
+        from .hooks._log import log
+
+        log(f"[summarizer] {_LAST_ERROR}")
     except Exception:
-        return None
-    if proc.returncode != 0:
-        return None
-    if output_file is not None:
-        try:
-            text = Path(output_file).read_text(encoding="utf-8").strip()
-        except Exception:
-            return None
-    else:
-        text = (proc.stdout or "").strip()
-    return (text, source, model) if text else None
+        pass
 
 
-def _summarize_via_codex(user_msg: str, assistant_msg: str) -> Optional[SummaryResult]:
-    """Fallback when claude CLI is unavailable.
-
-    codex has no `--append-system-prompt`; we prepend _SYSTEM into the body.
-    We also do not pass --model: codex uses whatever is configured in
-    ~/.codex/config.toml. SUMMARY_MODEL is intentionally not forwarded, and
-    the result is attributed source="codex" with model=None.
-    """
-    cli = _codex_cli()
-    if cli is None:
-        return None
-    content = (
-        f"{_SYSTEM}\n\n"
-        "下面是需要摘要的对话。请严格按上面的格式输出摘要正文：\n\n"
-        + _conversation_body(user_msg, assistant_msg)
-    )
-    out_path: Optional[str] = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            "w", suffix=".txt", delete=False, prefix="lynx-codex-"
-        ) as f:
-            out_path = f.name
-        return _run_cli(
-            [
-                cli, "exec",
-                "--ephemeral",
-                "--skip-git-repo-check",
-                "--color", "never",
-                "--output-last-message", out_path,
-                content,
-            ],
-            source="codex",
-            model=None,
-            output_file=out_path,
-        )
-    finally:
-        if out_path:
-            try:
-                os.unlink(out_path)
-            except OSError:
-                pass
+def last_error() -> str:
+    return _LAST_ERROR
 
 
-def _summarize_via_cli(user_msg: str, assistant_msg: str) -> Optional[SummaryResult]:
-    """Primary backend: shell out to `claude` CLI."""
-    cli = _claude_cli()
-    if cli is None:
-        return None
-    content = (
-        "下面是需要摘要的对话。请严格按系统提示中的格式输出摘要正文：\n\n"
-        + _conversation_body(user_msg, assistant_msg)
-    )
-    model = model_name()
-    return _run_cli(
-        [
-            cli, "-p",
-            "--model", model,
-            "--append-system-prompt", _SYSTEM,
-            "--output-format", "text",
-            "--no-session-persistence",
-            content,
-        ],
-        source="haiku",
-        model=model,
-    )
-
-
-@lru_cache(maxsize=1)
 def _sdk_client():
     import anthropic
 
-    key = os.environ.get("ANTHROPIC_API_KEY")
+    key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     if not key:
         raise RuntimeError("ANTHROPIC_API_KEY not set")
     return anthropic.Anthropic(api_key=key)
@@ -196,9 +102,10 @@ def _sdk_client():
 def _summarize_via_sdk(user_msg: str, assistant_msg: str) -> Optional[SummaryResult]:
     try:
         client = _sdk_client()
-    except Exception:
+    except Exception as exc:
+        _log_failure("anthropic client init", exc)
         return None
-    content = f"User:\n{user_msg[:6000]}\n\n---\n\nAssistant:\n{assistant_msg[:10000]}"
+    content = _conversation_body(user_msg, assistant_msg)
     model = model_name()
     try:
         resp = client.messages.create(
@@ -213,7 +120,8 @@ def _summarize_via_sdk(user_msg: str, assistant_msg: str) -> Optional[SummaryRes
             ],
             messages=[{"role": "user", "content": content}],
         )
-    except Exception:
+    except Exception as exc:
+        _log_failure("anthropic request", exc)
         return None
     parts = []
     for block in resp.content or []:
@@ -221,14 +129,56 @@ def _summarize_via_sdk(user_msg: str, assistant_msg: str) -> Optional[SummaryRes
         if t:
             parts.append(t)
     text = "\n".join(parts).strip()
-    return (text, "haiku", model) if text else None
+    return (text, "anthropic", model) if text else None
+
+
+def _summarize_via_openai(user_msg: str, assistant_msg: str) -> Optional[SummaryResult]:
+    try:
+        from openai import OpenAI as _OpenAI
+    except ImportError as exc:
+        _log_failure("openai import", exc)
+        return None
+    key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if not key:
+        return None
+    base_url = os.environ.get("OPENAI_BASE_URL", "").strip() or "https://api.openai.com/v1"
+    model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+    content = _conversation_body(user_msg, assistant_msg)
+    try:
+        kwargs: dict = {"api_key": key, "base_url": base_url}
+        client = _OpenAI(**kwargs)
+        # Newer models (gpt-5.x series) use the Responses API; older models use Chat Completions.
+        # Try Responses API first, fall back to Chat Completions on failure.
+        try:
+            resp = client.responses.create(
+                model=model,
+                instructions=_SYSTEM,
+                input=content,
+                max_output_tokens=600,
+            )
+            text = (resp.output_text or "").strip()
+        except Exception as exc:
+            _log_failure("openai responses request", exc)
+            resp = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": _SYSTEM},
+                    {"role": "user", "content": content},
+                ],
+                max_tokens=600,
+            )
+            text = (resp.choices[0].message.content or "").strip()
+        return (text, "openai", model) if text else None
+    except Exception as exc:
+        _log_failure("openai request", exc)
+        return None
 
 
 def summarize_with_source(user_msg: str, assistant_msg: str) -> Optional[SummaryResult]:
-    """Return (summary, source, model), or None on failure / if disabled.
+    """Return (summary, source, model), or None if disabled / not configured.
 
-    `model` may be None when the backend (codex CLI) does not expose which
-    model it routed to.
+    Backend is selected by SUMMARY_BACKEND (sdk | openai | auto).
+    In auto mode, tries Anthropic if ANTHROPIC_API_KEY is set, else OpenAI.
     """
     if not is_enabled():
         return None
@@ -237,21 +187,28 @@ def summarize_with_source(user_msg: str, assistant_msg: str) -> Optional[Summary
     if not user_msg or not assistant_msg:
         return None
 
+    has_anthropic = bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
+    has_openai = bool(os.environ.get("OPENAI_API_KEY", "").strip())
+
     backend = _backend()
-    if backend == "cli":
-        return _summarize_via_cli(user_msg, assistant_msg)
     if backend == "sdk":
+        if has_anthropic:
+            return _summarize_via_sdk(user_msg, assistant_msg)
+        if has_openai:
+            return _summarize_via_openai(user_msg, assistant_msg)
+        return None
+    if backend == "openai":
+        if has_openai:
+            return _summarize_via_openai(user_msg, assistant_msg)
+        if has_anthropic:
+            return _summarize_via_sdk(user_msg, assistant_msg)
+        return None
+    # auto: try Anthropic first, then OpenAI
+    if has_anthropic:
         return _summarize_via_sdk(user_msg, assistant_msg)
-    # auto: try claude CLI first, then codex CLI, finally SDK
-    if _claude_cli() is not None:
-        out = _summarize_via_cli(user_msg, assistant_msg)
-        if out:
-            return out
-    if _codex_cli() is not None:
-        out = _summarize_via_codex(user_msg, assistant_msg)
-        if out:
-            return out
-    return _summarize_via_sdk(user_msg, assistant_msg)
+    if has_openai:
+        return _summarize_via_openai(user_msg, assistant_msg)
+    return None
 
 
 def summarize(user_msg: str, assistant_msg: str) -> Optional[str]:
@@ -277,11 +234,11 @@ def spawn_background(data_dir: str, turn_id: str) -> None:
 
 
 def _run_one(data_dir: str, turn_id: str) -> int:
-    from .config import load_env
+    from .config import GLOBAL_DATA_DIR, load_env
     from .storage import Memory
 
     ddir = Path(data_dir)
-    load_env(ddir)
+    load_env(GLOBAL_DATA_DIR)
     mem = Memory(data_dir=ddir)
     try:
         t = mem.get_turn(turn_id)

@@ -95,7 +95,7 @@ def load_env(data_dir: Optional[Path] = None) -> None:
     """
     target = (data_dir or GLOBAL_DATA_DIR) / ".env"
     if target.exists():
-        load_dotenv(target, override=False)
+        load_dotenv(target, override=True)
     if data_dir is not None and data_dir != GLOBAL_DATA_DIR:
         global_env = GLOBAL_DATA_DIR / ".env"
         if global_env.exists():

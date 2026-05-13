@@ -1,4 +1,5 @@
 import type {
+  AppSettings,
   RetrievalDetail,
   RetrievalsResponse,
   Scope,
@@ -15,6 +16,10 @@ async function jsonFetch<T>(input: RequestInfo, init?: RequestInit): Promise<T> 
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
     throw new Error(`${res.status} ${text}`);
+  }
+  const ct = res.headers.get("content-type") ?? "";
+  if (!ct.includes("application/json")) {
+    throw new Error(`Server returned non-JSON response (${res.status}). Try restarting the server.`);
   }
   return (await res.json()) as T;
 }
@@ -86,5 +91,14 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path, line }),
+    }),
+
+  getSettings: () => jsonFetch<AppSettings>("/api/settings"),
+
+  putSettings: (settings: AppSettings) =>
+    jsonFetch<{ ok: true }>("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(settings),
     }),
 };

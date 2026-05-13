@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openlynx"
-version = "0.2.4"
+version = "0.3.0"
 description = "OpenLynx — persistent semantic memory for Claude Code, Codex CLI and other coding agents. Auto-saves and recalls conversation history across sessions."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,6 +24,7 @@ dependencies = [
     "voyageai>=0.3.0",
     "mcp>=1.0.0",
     "anthropic>=0.40.0",
+    "openai>=1.0.0",
     "python-dotenv>=1.0.0",
     "fastapi>=0.110.0",
     "uvicorn>=0.27.0",

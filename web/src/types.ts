@@ -84,3 +84,19 @@ export interface TagInfo {
   count: number;
   created_at?: number;
 }
+
+export interface AppSettings {
+  summary_enabled: boolean;
+  top_k: number;
+  min_score: number;
+  scope: string;
+  summary_model: string;
+  summary_backend: string;
+  anthropic_api_key_set: boolean;
+  openai_api_key_set: boolean;
+  openai_model: string;
+  openai_base_url: string;
+  // write-only: only sent on save, never returned from server
+  anthropic_api_key?: string;
+  openai_api_key?: string;
+}

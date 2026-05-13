@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "../api";
@@ -110,9 +110,76 @@ function inferSummarySource(source: string | null | undefined, model: string | n
   return null;
 }
 
+type MessageRole = "user" | "assistant";
+
+interface MessageBubbleProps {
+  role: MessageRole;
+  label: string;
+  avatar: string;
+  text: string;
+  previewLimit: number;
+  expanded: boolean;
+  selected: boolean;
+  onToggle: () => void;
+  onSelect: () => void;
+}
+
+function MessageBubble({
+  role,
+  label,
+  avatar,
+  text,
+  previewLimit,
+  expanded,
+  selected,
+  onToggle,
+  onSelect,
+}: MessageBubbleProps) {
+  const truncated = text.length > previewLimit;
+  const preview = !expanded && truncated ? text.slice(0, previewLimit) + "…" : text;
+
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (!truncated || (e.key !== "Enter" && e.key !== " ")) return;
+    const target = e.target as HTMLElement;
+    if (target.closest("a, button, input, textarea, select")) return;
+    e.preventDefault();
+    onToggle();
+  };
+
+  return (
+    <div className={`msg msg-${role}`}>
+      <div className="avatar" aria-hidden>{avatar}</div>
+      <div
+        className={`bubble${truncated ? " expandable" : ""}${expanded ? " expanded" : ""}${selected ? " selected" : ""}`}
+        tabIndex={truncated ? 0 : undefined}
+        role={truncated ? "group" : undefined}
+        aria-expanded={truncated ? expanded : undefined}
+        aria-label={truncated ? `${label} 内容，按回车${expanded ? "收起" : "展开"}` : undefined}
+        onClick={(e) => {
+          const target = e.target as HTMLElement;
+          if (!target.closest("a, button, input, textarea, select")) onSelect();
+        }}
+        onFocus={onSelect}
+        onKeyDown={onKeyDown}
+      >
+        <div className="bubble-head">{label}</div>
+        <Markdown text={preview} />
+        {truncated && (
+          <div className="bubble-expand-cue" aria-hidden="true">
+            <span>{expanded ? "collapse" : "expand"}</span>
+            <kbd>Enter</kbd>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function TurnCard({ turn, scope, onDelete, onAddTag, onRemoveTag }: Props) {
   const [newTag, setNewTag] = useState("");
-  const [expanded, setExpanded] = useState(false);
+  const [userExpanded, setUserExpanded] = useState(false);
+  const [assistantExpanded, setAssistantExpanded] = useState(false);
+  const [selectedMessage, setSelectedMessage] = useState<MessageRole | null>(null);
   const [showRetrievals, setShowRetrievals] = useState(false);
   const [retrievals, setRetrievals] = useState<TurnRetrievalsResponse | null>(null);
   const [retrErr, setRetrErr] = useState<string | null>(null);
@@ -128,6 +195,12 @@ export function TurnCard({ turn, scope, onDelete, onAddTag, onRemoveTag }: Props
     setSummarySource(turn.summary_source ?? null);
     setSummaryModel(turn.summary_model ?? null);
   }, [turn.id, turn.summary, turn.summary_model, turn.summary_source]);
+
+  useEffect(() => {
+    setUserExpanded(false);
+    setAssistantExpanded(false);
+    setSelectedMessage(null);
+  }, [turn.id]);
 
   const regenerate = async () => {
     setSummaryBusy(true);
@@ -155,17 +228,6 @@ export function TurnCard({ turn, scope, onDelete, onAddTag, onRemoveTag }: Props
       cancelled = true;
     };
   }, [showRetrievals, retrievals, scope, turn.id]);
-
-  const userPreview =
-    !expanded && turn.user_msg.length > 400
-      ? turn.user_msg.slice(0, 400) + "…"
-      : turn.user_msg;
-  const asstPreview =
-    !expanded && turn.assistant_msg.length > 800
-      ? turn.assistant_msg.slice(0, 800) + "…"
-      : turn.assistant_msg;
-  const truncated =
-    turn.user_msg.length > 400 || turn.assistant_msg.length > 800;
 
   const submitTag = (e: React.FormEvent) => {
     e.preventDefault();
@@ -220,26 +282,28 @@ export function TurnCard({ turn, scope, onDelete, onAddTag, onRemoveTag }: Props
         )}
       </div>
 
-      <div className="msg msg-user">
-        <div className="avatar" aria-hidden>U</div>
-        <div className="bubble">
-          <div className="bubble-head">User</div>
-          <Markdown text={userPreview} />
-        </div>
-      </div>
-      <div className="msg msg-assistant">
-        <div className="avatar" aria-hidden>✦</div>
-        <div className="bubble">
-          <div className="bubble-head">Assistant</div>
-          <Markdown text={asstPreview} />
-        </div>
-      </div>
-
-      {truncated && (
-        <button className="link" onClick={() => setExpanded((x) => !x)}>
-          {expanded ? "collapse" : "expand"}
-        </button>
-      )}
+      <MessageBubble
+        role="user"
+        label="User"
+        avatar="U"
+        text={turn.user_msg}
+        previewLimit={400}
+        expanded={userExpanded}
+        selected={selectedMessage === "user"}
+        onSelect={() => setSelectedMessage("user")}
+        onToggle={() => setUserExpanded((x) => !x)}
+      />
+      <MessageBubble
+        role="assistant"
+        label="Assistant"
+        avatar="✦"
+        text={turn.assistant_msg}
+        previewLimit={800}
+        expanded={assistantExpanded}
+        selected={selectedMessage === "assistant"}
+        onSelect={() => setSelectedMessage("assistant")}
+        onToggle={() => setAssistantExpanded((x) => !x)}
+      />
 
       <div className="tags-row">
         {turn.tags.map((t) => (

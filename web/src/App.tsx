@@ -3,6 +3,7 @@ import { api } from "./api";
 import type { ScopesResponse, SearchMode, Scope, TagInfo, Turn } from "./types";
 import { TurnCard } from "./components/TurnCard";
 import { RetrievalsView } from "./components/RetrievalsView";
+import { SettingsPanel } from "./components/SettingsPanel";
 
 const PAGE_SIZE = 15;
 
@@ -22,6 +23,7 @@ export default function App() {
   const [tags, setTags] = useState<TagInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">(() => {
     const stored = typeof localStorage !== "undefined" ? localStorage.getItem("cm-theme") : null;
     if (stored === "light" || stored === "dark") return stored;
@@ -210,15 +212,26 @@ export default function App() {
           </button>
         </div>
 
-        <button
-          className="theme-toggle"
-          onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
-          title={theme === "dark" ? "switch to light mode" : "switch to dark mode"}
-          aria-label="toggle theme"
-        >
-          {theme === "dark" ? "☀" : "☾"}
-        </button>
+        <div className="topbar-right">
+          <button
+            className="icon-btn"
+            onClick={() => setSettingsOpen(true)}
+            title="Settings"
+            aria-label="open settings"
+          >
+            ⚙
+          </button>
+          <button
+            className="theme-toggle"
+            onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+            title={theme === "dark" ? "switch to light mode" : "switch to dark mode"}
+            aria-label="toggle theme"
+          >
+            {theme === "dark" ? "☀" : "☾"}
+          </button>
+        </div>
       </header>
+      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
       <nav className="view-tabs" role="tablist" aria-label="view">
         <button

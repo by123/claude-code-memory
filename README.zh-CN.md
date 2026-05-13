@@ -19,16 +19,16 @@ Claude   : 结合你有蛋蛋（金色边牧）这个大运动量的伙伴，可
 
 | Hook                | 作用                                                  |
 | ------------------- | ----------------------------------------------------- |
-| `UserPromptSubmit`  | 把你的 prompt 向量化，注入最相似的 K 条历史对话；命中的 turn 若已有 Haiku 摘要，注入的是**摘要**而不是原文 |
-| `Stop`              | 把本轮 user/assistant 对话存入 SQLite + Chroma，并 **detached fork** 一个后台进程让 Haiku 生成本轮摘要（默认走 `claude -p`，无需额外 API Key） |
-| `SessionEnd`        | 让 Claude Haiku 给整段会话生成一份粗粒度摘要          |
+| `UserPromptSubmit`  | 把你的 prompt 向量化，注入最相似的 K 条历史对话；命中的 turn 若已有摘要，注入的是**摘要**而不是原文 |
+| `Stop`              | 把本轮 user/assistant 对话存入 SQLite + Chroma，并 **detached fork** 一个后台摘要进程，通过配置好的 API（Anthropic 或 OpenAI）从本轮对话中提取长期记忆 |
+| `SessionEnd`        | 调用配置的 API，给整段会话生成一份粗粒度记忆摘要       |
 
 存储方式：
 
-- **SQLite** — 原始对话、每轮 Haiku 摘要、会话级摘要的真实数据源
+- **SQLite** — 原始对话、每轮摘要、会话级摘要的真实数据源
 - **Chroma** — 本地向量索引（turns + 摘要）
 - **Voyage AI** (`voyage-3`) — 文本向量化服务
-- **Claude Haiku** (`claude-haiku-4-5-20251001`) — 每轮摘要，默认通过 `claude -p` 复用你已经登录的 Claude Code 鉴权
+- **Anthropic**（默认，`claude-haiku-4-5-20251001`）或 **OpenAI**（`gpt-4o-mini`）— 每轮摘要与会话摘要，需配置 `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY`
 
 ## 安装
 
@@ -42,7 +42,9 @@ lynx-memory init
 1. 创建数据目录 `~/.claude/lynx-memory/`
 2. 提示你输入 `VOYAGE_API_KEY`（免费申请：https://www.voyageai.com/）
 3. 写入默认配置：`MIN_SCORE=0.7`、`SUMMARY_ENABLED=1`、
-   `SUMMARY_MODEL=claude-haiku-4-5-20251001`、`SUMMARY_BACKEND=auto`
+   `SUMMARY_MODEL=claude-haiku-4-5-20251001`、`SUMMARY_BACKEND=auto`；
+   设置 `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY` 以启用每轮摘要
+   （也可以之后在 Web UI ⚙ 设置面板里配置）
 4. 备份现有的 `~/.claude/settings.json`，注入三个 hook
 5. 打印验证步骤
 
@@ -119,7 +121,8 @@ lynx-memory uninstall      卸载 hooks 与 slash 命令（保留数据）
 - 给单条 turn 打标签（如 `#work`、`#personal`），并按标签过滤
 - 自动生成**类型化标签**，区分 `user` / `project` / `module` / `custom`
 - 删除单条 turn（同时清掉 Chroma 里的向量）
-- 每条 turn 顶部显示 **Haiku 摘要**，可一键"重新生成"
+- 每条 turn 顶部显示**摘要**，可一键"重新生成"
+- 点击右上角 **⚙ 设置图标** 打开**设置面板**，在浏览器里直接配置所有选项：API Key、摘要后端（Anthropic / OpenAI）、模型、Top-K、相似度阈值、召回范围——保存后自动写入 `~/.claude/lynx-memory/.env`
 
 ### 使用方式
 
@@ -146,7 +149,7 @@ UI 上的操作直接落库：
 | **移除标签** | 删 `turn_tags`；如果该标签没人用了，再清 `tags` 里的孤立行            |
 | **关键字搜索**| SQL `LIKE` 直查 `user_msg` / `assistant_msg`，不调用 embedding 接口 |
 | **语义搜索** | 调一次 Voyage 算 query 向量，再从 Chroma 取 top-K                     |
-| **重新生成摘要** | 调一次 `claude -p`（Haiku），把 `summary` / `summary_model` / `summary_ts` 写回 `turns`            |
+| **重新生成摘要** | 调一次 API（Anthropic 或 OpenAI，取决于 `SUMMARY_BACKEND`），把 `summary` / `summary_model` / `summary_ts` 写回 `turns` |
 
 服务只监听 `127.0.0.1`，按 `Ctrl+C` 关闭。
 
@@ -198,13 +201,15 @@ lynx-memory init-project
 | `VOYAGE_API_KEY`                | —                                   | 必填，向量化用                    |
 | `TOP_K`                         | `5`                                 | 每次注入的最多记忆条数            |
 | `MIN_SCORE`                     | `0.7`                               | 相似度下限（0–1）                 |
-| `SUMMARY_ENABLED`               | `1`                                 | 设为 `0`/`false` 关闭每轮 Haiku 摘要 |
-| `SUMMARY_MODEL`                 | `claude-haiku-4-5-20251001`         | 每轮摘要用的模型                  |
-| `SUMMARY_BACKEND`               | `auto`                              | `auto`：PATH 上有 `claude` 时走 CLI，否则走 SDK；可强制 `cli` 或 `sdk` |
-| `SUMMARY_TIMEOUT`               | `60`                                | `claude -p` 子进程超时秒数        |
-| `ANTHROPIC_API_KEY`             | —                                   | 仅当 `SUMMARY_BACKEND=sdk` 时需要；CLI 后端复用 `claude` 自身鉴权 |
+| `SUMMARY_ENABLED`               | `1`                                 | 设为 `0`/`false` 关闭每轮摘要     |
+| `SUMMARY_BACKEND`               | `auto`                              | `auto`：有 `ANTHROPIC_API_KEY` 时走 Anthropic，否则走 OpenAI；可强制 `sdk` 或 `openai` |
+| `SUMMARY_MODEL`                 | `claude-haiku-4-5-20251001`         | Anthropic 每轮摘要用的模型        |
+| `ANTHROPIC_API_KEY`             | —                                   | `SUMMARY_BACKEND=sdk` 或 `auto`（无 OpenAI key）时必填 |
+| `OPENAI_API_KEY`                | —                                   | `SUMMARY_BACKEND=openai` 时必填   |
+| `OPENAI_MODEL`                  | `gpt-4o-mini`                       | OpenAI 摘要用的模型               |
+| `OPENAI_BASE_URL`               | `https://api.openai.com/v1`         | 兼容 OpenAI 协议的自定义端点      |
 | `LYNX_MEMORY_DIR`             | `~/.claude/lynx-memory`           | SQLite + Chroma 数据目录          |
-| `LYNX_MEMORY_SUMMARY_MODEL`   | `claude-haiku-4-5-20251001`         | `SessionEnd` 摘要用的模型         |
+| `LYNX_MEMORY_SUMMARY_MODEL`   | `claude-haiku-4-5-20251001`         | `SessionEnd` 会话摘要用的 Anthropic 模型 |
 
 ## 可选：MCP 服务
 
@@ -233,9 +238,8 @@ rm -rf ~/.claude/lynx-memory            # 直接 rm（不可逆）
 ## 隐私说明
 
 - 所有数据保存在你本机的 `~/.claude/lynx-memory/`
-- 外部请求：**Voyage AI**（embedding，包含你的 prompt 文本）；**Anthropic**
-  Haiku 用于每轮摘要（默认走你已登录的 `claude` CLI，无需另配 key）和
-  `SessionEnd` 会话级总结
+- 外部请求：**Voyage AI**（embedding，包含你的 prompt 文本）；**Anthropic** 或 **OpenAI**
+  用于每轮和会话级摘要（需配置 API Key，可通过 `.env` 或 Web UI ⚙ 设置面板配置）
 - 不想让每轮内容被发去做摘要的话，设 `SUMMARY_ENABLED=0`
 - 想加密静态数据的话，把 `LYNX_MEMORY_DIR` 指向一个加密卷即可
 

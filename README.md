@@ -23,16 +23,16 @@ a small Python service:
 
 | Hook              | What it does                                                              |
 | ----------------- | ------------------------------------------------------------------------- |
-| `UserPromptSubmit` | Embeds your prompt and injects the top-K most similar prior turns. When a turn has a Haiku-generated summary, the **summary** is injected instead of the raw prose. |
-| `Stop`             | Persists the current user/assistant turn into SQLite + Chroma, then spawns a detached background process that asks Haiku to summarize the turn (no extra API key needed — reuses your `claude` CLI session). |
-| `SessionEnd`       | Asks Claude Haiku to produce a coarse summary of the whole session.       |
+| `UserPromptSubmit` | Embeds your prompt and injects the top-K most similar prior turns. When a turn has a summary, the **summary** is injected instead of the raw prose. |
+| `Stop`             | Persists the current user/assistant turn into SQLite + Chroma, then spawns a detached background summarizer that calls the configured API (Anthropic or OpenAI) to extract long-term memories from the turn. |
+| `SessionEnd`       | Calls the configured API to produce a coarse memory summary of the whole session. |
 
 Storage:
 
-- **SQLite** — source of truth for raw turns, per-turn Haiku summaries, and session summaries
+- **SQLite** — source of truth for raw turns, per-turn summaries, and session summaries
 - **Chroma** — local vector index over turns + summaries
 - **Voyage AI** (`voyage-3`) — embeddings
-- **Claude Haiku** (`claude-haiku-4-5-20251001`) — per-turn summarization, called via `claude -p` so no extra `ANTHROPIC_API_KEY` is required
+- **Anthropic** (`claude-haiku-4-5-20251001`, default) or **OpenAI** (`gpt-4o-mini`) — per-turn and session summarization (requires `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`)
 
 ## Install
 
@@ -46,9 +46,9 @@ lynx-memory init
 1. Create `~/.claude/lynx-memory/` (data directory)
 2. Prompt for your `VOYAGE_API_KEY` (get one free at https://www.voyageai.com/)
 3. Write the default `.env` (`MIN_SCORE=0.7`, `SUMMARY_ENABLED=1`,
-   `SUMMARY_MODEL=claude-haiku-4-5-20251001`, `SUMMARY_BACKEND=auto`) — the
-   per-turn Haiku summarizer reuses your existing `claude` CLI session, so
-   no extra `ANTHROPIC_API_KEY` is required by default
+   `SUMMARY_MODEL=claude-haiku-4-5-20251001`, `SUMMARY_BACKEND=auto`) —
+   set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` to enable per-turn summarization
+   (configurable later via the Web UI ⚙ Settings panel)
 4. Back up your existing `~/.claude/settings.json` and add the three hooks
 5. Print verification steps
 
@@ -125,7 +125,8 @@ in your browser and lets you:
 - Search by **keyword** (SQL `LIKE`) or **semantic** similarity (Voyage embeddings)
 - Tag turns (e.g. `#work`, `#personal`) and filter by tag
 - Delete a single turn (also clears its embedding from Chroma)
-- See the per-turn **Haiku summary** above each turn, with a one-click button to (re)generate it on demand
+- See the per-turn **summary** above each turn, with a one-click button to (re)generate it on demand
+- Click the **⚙ gear icon** (top-right) to open the **Settings panel** and configure everything in-browser: API keys, summary backend (Anthropic / OpenAI), model, Top-K, min score, and retrieval scope — changes are saved directly to `~/.claude/lynx-memory/.env`
 
 ### Usage
 
@@ -150,7 +151,7 @@ lynx-memory web --no-open
 | **Remove a tag**     | Row removed from `turn_tags`; orphaned tag is GC'd from `tags`              |
 | **Search (keyword)** | SQL `LIKE` over `user_msg` and `assistant_msg` — no embedding call          |
 | **Search (semantic)**| One Voyage embedding per query, then top-K from Chroma                      |
-| **Regenerate summary** | One `claude -p` call (Haiku); writes `summary` / `summary_model` / `summary_ts` back into the `turns` row |
+| **Regenerate summary** | One API call (Anthropic or OpenAI, per `SUMMARY_BACKEND`); writes `summary` / `summary_model` / `summary_ts` back into the `turns` row |
 
 The server only binds to `127.0.0.1`. Press `Ctrl+C` to stop it.
 
@@ -181,13 +182,15 @@ All optional, set in `~/.claude/lynx-memory/.env`:
 | `VOYAGE_API_KEY`               | —                                    | Required for embeddings                    |
 | `TOP_K`                        | `5`                                  | Max memories injected per prompt           |
 | `MIN_SCORE`                    | `0.7`                                | Cosine similarity floor (0–1)              |
-| `SUMMARY_ENABLED`              | `1`                                  | Set `0`/`false` to disable per-turn Haiku summarization |
-| `SUMMARY_MODEL`                | `claude-haiku-4-5-20251001`          | Model used for per-turn summaries          |
-| `SUMMARY_BACKEND`              | `auto`                               | `auto` → CLI when `claude` is on PATH, else SDK; force with `cli` or `sdk` |
-| `SUMMARY_TIMEOUT`              | `60`                                 | Seconds before the `claude -p` subprocess is killed |
-| `ANTHROPIC_API_KEY`            | —                                    | Only needed when `SUMMARY_BACKEND=sdk` (CLI backend reuses your existing `claude` auth) |
+| `SUMMARY_ENABLED`              | `1`                                  | Set `0`/`false` to disable per-turn summarization |
+| `SUMMARY_BACKEND`              | `auto`                               | `auto` → Anthropic if `ANTHROPIC_API_KEY` is set, else OpenAI; force with `sdk` or `openai` |
+| `SUMMARY_MODEL`                | `claude-haiku-4-5-20251001`          | Anthropic model used for per-turn summaries |
+| `ANTHROPIC_API_KEY`            | —                                    | Required when `SUMMARY_BACKEND=sdk` or `auto` with no OpenAI key |
+| `OPENAI_API_KEY`               | —                                    | Required when `SUMMARY_BACKEND=openai`     |
+| `OPENAI_MODEL`                 | `gpt-4o-mini`                        | OpenAI model used for summarization        |
+| `OPENAI_BASE_URL`              | `https://api.openai.com/v1`          | Override for OpenAI-compatible endpoints   |
 | `LYNX_MEMORY_DIR`            | `~/.claude/lynx-memory`            | Where SQLite + Chroma live                 |
-| `LYNX_MEMORY_SUMMARY_MODEL`  | `claude-haiku-4-5-20251001`          | Model used by `SessionEnd`                 |
+| `LYNX_MEMORY_SUMMARY_MODEL`  | `claude-haiku-4-5-20251001`          | Anthropic model used by `SessionEnd`       |
 
 ## Optional: MCP server
 
@@ -216,9 +219,8 @@ rm -rf ~/.claude/lynx-memory            # nuke directly (irreversible)
 ## Privacy
 
 - All data stays on your machine in `~/.claude/lynx-memory/`.
-- Outbound calls: **Voyage AI** for embeddings (your prompt text), **Anthropic**
-  for per-turn Haiku summaries (default; goes through your existing `claude`
-  CLI session — no extra key) and end-of-session summaries.
+- Outbound calls: **Voyage AI** for embeddings (your prompt text); **Anthropic** or **OpenAI**
+  for per-turn and session summaries (requires an API key — set via `.env` or the Web UI ⚙ Settings panel).
 - Set `SUMMARY_ENABLED=0` if you don't want per-turn summaries to leave the box.
 - Set `LYNX_MEMORY_DIR` to encrypt at rest with whatever filesystem-level
   encryption your OS provides.
