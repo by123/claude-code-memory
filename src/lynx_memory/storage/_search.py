@@ -1,9 +1,12 @@
 """Vector + tag-aware search over a single Memory store."""
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional
 
 from ..embeddings import embed_one
+
+logger = logging.getLogger(__name__)
 
 
 class _SearchMixin:
@@ -20,22 +23,34 @@ class _SearchMixin:
         min_score: float = 0.3,
         source: str = "both",
     ) -> List[Dict[str, Any]]:
+        import os
+        backend = os.environ.get("EMBEDDING_BACKEND", "voyage")
+        model = (
+            os.environ.get("VOYAGE_MODEL", "voyage-3.5") if backend == "voyage"
+            else os.environ.get("OPENAI_EMBEDDING_MODEL", "text-embedding-3-large")
+        )
+        logger.info("[search] backend=%s model=%s top_k=%d min_score=%.2f query=%r",
+                    backend, model, top_k, min_score, query[:80])
+
         qvec = embed_one(query, input_type="query")
         fetch_k = max(self._SEARCH_MIN_CANDIDATES, top_k * self._SEARCH_OVERFETCH)
         candidates: List[Dict[str, Any]] = []
 
         def _pull(collection, kind: str) -> None:
             n = collection.count()
+            logger.info("[search] collection=%s total_docs=%d fetch_k=%d", kind, n, fetch_k)
             if n == 0:
                 return
             res = collection.query(
                 query_embeddings=[qvec],
                 n_results=min(fetch_k, n),
             )
+            all_scores = []
             for i, d, m, dist in zip(
                 res["ids"][0], res["documents"][0], res["metadatas"][0], res["distances"][0]
             ):
                 score = 1.0 - float(dist)
+                all_scores.append(score)
                 if score < min_score:
                     continue
                 candidates.append(
@@ -49,6 +64,10 @@ class _SearchMixin:
                         "cwd": m.get("cwd", ""),
                     }
                 )
+            scores_str = ", ".join(f"{s:.3f}" for s in all_scores)
+            passed = sum(1 for s in all_scores if s >= min_score)
+            logger.info("[search] collection=%s scores=[%s] passed_min_score=%d/%d",
+                        kind, scores_str, passed, len(all_scores))
 
         if source in ("both", "turns"):
             _pull(self.turns, "turn")
@@ -87,4 +106,8 @@ class _SearchMixin:
             r["score"] = min(1.0, float(r["score"]) + boost)
 
         candidates.sort(key=lambda x: x["score"], reverse=True)
-        return candidates[:top_k]
+        final = candidates[:top_k]
+        logger.info("[search] returning %d result(s): %s",
+                    len(final),
+                    [(r["kind"], f"{r['score']:.3f}") for r in final])
+        return final

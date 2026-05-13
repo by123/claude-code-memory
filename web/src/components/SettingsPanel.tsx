@@ -32,6 +32,19 @@ const BACKEND_BASE_URLS: Record<string, string> = {
   openai: "https://api.openai.com/v1",
 };
 
+const OPENAI_EMBEDDING_MODELS = [
+  { value: "text-embedding-3-large", label: "text-embedding-3-large  ★ higher accuracy" },
+  { value: "text-embedding-3-small", label: "text-embedding-3-small  · fast · low cost" },
+];
+
+const VOYAGE_MODELS = [
+  { value: "voyage-3.5",      label: "voyage-3.5  ★ latest · general purpose" },
+  { value: "voyage-3.5-lite", label: "voyage-3.5-lite  · fast · low cost" },
+  { value: "voyage-3",        label: "voyage-3  · previous generation" },
+  { value: "voyage-3-lite",   label: "voyage-3-lite  · lightweight" },
+  { value: "voyage-code-3",   label: "voyage-code-3  · optimized for code" },
+];
+
 const DEFAULT_SETTINGS: AppSettings = {
   summary_enabled: false,
   top_k: 5,
@@ -41,8 +54,12 @@ const DEFAULT_SETTINGS: AppSettings = {
   summary_backend: "sdk",
   anthropic_api_key_set: false,
   openai_api_key_set: false,
+  voyage_api_key_set: false,
   openai_model: "gpt-5.4-nano",
   openai_base_url: "",
+  embedding_backend: "voyage",
+  openai_embedding_model: "text-embedding-3-large",
+  voyage_model: "voyage-3.5",
 };
 
 interface Props {
@@ -70,21 +87,21 @@ function KeyRow({
       <div className="settings-label">
         <span>{label}</span>
         <span className="settings-hint">
-          {isSet && pendingKey === null
-            ? <span className="settings-key-status set">● configured</span>
-            : pendingKey === ""
-              ? <span className="settings-key-status unset">○ will be removed</span>
+          {pendingKey === ""
+            ? <span className="settings-key-status unset">○ will be removed</span>
+            : (isSet || (pendingKey !== null && pendingKey.length > 0))
+              ? <span className="settings-key-status set">● configured</span>
               : <span className="settings-key-status unset">○ not set</span>}
         </span>
       </div>
       <div className="settings-key-field">
         <input
           className="settings-input settings-input-key"
-          type="password"
+          type="text"
           value={pendingKey ?? ""}
           onChange={(e) => onChange(e.target.value)}
-          placeholder={isSet && pendingKey === null ? "••••••••" : placeholder}
-          autoComplete="new-password"
+          placeholder={placeholder}
+          autoComplete="off"
         />
         {isSet && pendingKey === null && (
           <button className="settings-key-clear" onClick={onClear} title="Remove key">✕</button>
@@ -98,6 +115,7 @@ export function SettingsPanel({ open, onClose }: Props) {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [anthropicKey, setAnthropicKey] = useState<string | null>(null);
   const [openaiKey, setOpenaiKey] = useState<string | null>(null);
+  const [voyageKey, setVoyageKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -111,9 +129,15 @@ export function SettingsPanel({ open, onClose }: Props) {
     setSaved(false);
     setAnthropicKey(null);
     setOpenaiKey(null);
+    setVoyageKey(null);
     api
       .getSettings()
-      .then(setSettings)
+      .then((s) => {
+        setSettings(s);
+        setAnthropicKey(s.anthropic_api_key_value ?? null);
+        setOpenaiKey(s.openai_api_key_value ?? null);
+        setVoyageKey(s.voyage_api_key_value ?? null);
+      })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
   }, [open]);
@@ -132,16 +156,19 @@ export function SettingsPanel({ open, onClose }: Props) {
     setError(null);
     setSaved(false);
     try {
-      const payload: AppSettings = { ...settings };
-      if (anthropicKey !== null) payload.anthropic_api_key = anthropicKey;
-      if (openaiKey !== null) payload.openai_api_key = openaiKey;
+      const payload: AppSettings = {
+        ...settings,
+        anthropic_api_key: anthropicKey ?? undefined,
+        openai_api_key: openaiKey ?? undefined,
+        voyage_api_key: voyageKey ?? undefined,
+      };
       await api.putSettings(payload);
-      if (anthropicKey !== null)
-        setSettings((s) => ({ ...s, anthropic_api_key_set: anthropicKey.trim().length > 0 }));
-      if (openaiKey !== null)
-        setSettings((s) => ({ ...s, openai_api_key_set: openaiKey.trim().length > 0 }));
-      setAnthropicKey(null);
-      setOpenaiKey(null);
+      setSettings((s) => ({
+        ...s,
+        anthropic_api_key_set: anthropicKey ? anthropicKey.trim().length > 0 : s.anthropic_api_key_set,
+        openai_api_key_set: openaiKey ? openaiKey.trim().length > 0 : s.openai_api_key_set,
+        voyage_api_key_set: voyageKey ? voyageKey.trim().length > 0 : s.voyage_api_key_set,
+      }));
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
@@ -173,6 +200,90 @@ export function SettingsPanel({ open, onClose }: Props) {
           <div className="settings-loading">Loading…</div>
         ) : (
           <div className="settings-body">
+
+            {/* ── Embeddings ── */}
+            <section className="settings-section">
+              <div className="settings-section-title">Embeddings</div>
+
+              <div className="settings-row">
+                <div className="settings-label">
+                  <span>Backend</span>
+                  <span className="settings-hint">Embedding provider for semantic search</span>
+                </div>
+                <select
+                  className="settings-select"
+                  value={settings.embedding_backend}
+                  onChange={(e) => setSettings((s) => ({ ...s, embedding_backend: e.target.value }))}
+                >
+                  <option value="voyage">Voyage AI</option>
+                  <option value="openai">OpenAI</option>
+                </select>
+              </div>
+
+              {settings.embedding_backend === "voyage" && (
+                <>
+                  <div className="settings-row">
+                    <div className="settings-label">
+                      <span>Voyage model</span>
+                    </div>
+                    <select
+                      className="settings-select"
+                      value={settings.voyage_model}
+                      onChange={(e) => setSettings((s) => ({ ...s, voyage_model: e.target.value }))}
+                    >
+                      {VOYAGE_MODELS.map((m) => (
+                        <option key={m.value} value={m.value}>{m.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <KeyRow
+                    label="Voyage API key"
+                    isSet={settings.voyage_api_key_set}
+                    pendingKey={voyageKey}
+                    onChange={setVoyageKey}
+                    onClear={() => setVoyageKey("")}
+                    placeholder="pa-…"
+                  />
+                  {!settings.voyage_api_key_set && voyageKey === null && (
+                    <div className="settings-warning">
+                      ⚠ Voyage API key is required for semantic search and memory injection.
+                    </div>
+                  )}
+                </>
+              )}
+
+              {settings.embedding_backend === "openai" && (
+                <>
+                  <div className="settings-row">
+                    <div className="settings-label">
+                      <span>OpenAI embedding model</span>
+                    </div>
+                    <select
+                      className="settings-select"
+                      value={settings.openai_embedding_model}
+                      onChange={(e) => setSettings((s) => ({ ...s, openai_embedding_model: e.target.value }))}
+                    >
+                      {OPENAI_EMBEDDING_MODELS.map((m) => (
+                        <option key={m.value} value={m.value}>{m.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <KeyRow
+                    label="OpenAI API key"
+                    isSet={settings.openai_api_key_set}
+                    pendingKey={openaiKey}
+                    onChange={setOpenaiKey}
+                    onClear={() => setOpenaiKey("")}
+                    placeholder="sk-…"
+                  />
+                  {!settings.openai_api_key_set && openaiKey === null && (
+                    <div className="settings-warning">
+                      ⚠ OpenAI API key is required for embedding.
+                    </div>
+                  )}
+                </>
+              )}
+            </section>
 
             {/* ── Memory Injection ── */}
             <section className="settings-section">

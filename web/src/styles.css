@@ -575,6 +575,16 @@ a:focus-visible {
   background: var(--accent);
 }
 
+.settings-info {
+  font-size: 12px;
+  color: #6ba3d6;
+  background: rgba(107, 163, 214, 0.08);
+  border: 1px solid rgba(107, 163, 214, 0.25);
+  border-radius: 7px;
+  padding: 8px 12px;
+  line-height: 1.5;
+}
+
 .settings-warning {
   font-size: 12px;
   color: #f5a623;
@@ -694,6 +704,7 @@ a:focus-visible {
   color: var(--danger);
   border-color: var(--danger);
 }
+
 
 .settings-key-status {
   font-size: 11px;

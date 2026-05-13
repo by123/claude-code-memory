@@ -94,9 +94,17 @@ export interface AppSettings {
   summary_backend: string;
   anthropic_api_key_set: boolean;
   openai_api_key_set: boolean;
+  voyage_api_key_set: boolean;
   openai_model: string;
   openai_base_url: string;
-  // write-only: only sent on save, never returned from server
+  embedding_backend: string;
+  openai_embedding_model: string;
+  voyage_model: string;
+  // actual key values returned from server and sent on save
+  anthropic_api_key_value?: string;
+  openai_api_key_value?: string;
+  voyage_api_key_value?: string;
   anthropic_api_key?: string;
   openai_api_key?: string;
+  voyage_api_key?: string;
 }

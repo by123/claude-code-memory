@@ -17,7 +17,18 @@ import os
 import sys
 import traceback
 
+import logging
+
 from ._log import log
+
+
+def _setup_file_logging() -> None:
+    from ..config import LOG_PATH
+    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    handler = logging.FileHandler(str(LOG_PATH), encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(name)s | %(message)s"))
+    logging.getLogger("lynx_memory").addHandler(handler)
+    logging.getLogger("lynx_memory").setLevel(logging.INFO)
 
 
 def _parse_target() -> str:
@@ -34,6 +45,7 @@ def _parse_target() -> str:
 def _main() -> int:
     if os.environ.get("LYNX_MEMORY_NO_HOOK"):
         return 0
+    _setup_file_logging()
     target = _parse_target()
     try:
         data = json.load(sys.stdin)
@@ -68,14 +80,25 @@ def _main() -> int:
         top_k = int(os.environ.get("TOP_K", 5))
         min_score = float(os.environ.get("MIN_SCORE", 0.7))
         scope = os.environ.get("LYNX_MEMORY_SCOPE", "auto")
+        embedding_backend = os.environ.get("EMBEDDING_BACKEND", "voyage")
+        log(f"[on_prompt] search start | scope={scope} top_k={top_k} min_score={min_score} "
+            f"embedding_backend={embedding_backend} prompt={prompt[:80]!r}")
         results = search_scoped(
             prompt, cwd=cwd, scope=scope, top_k=top_k, min_score=min_score
+        )
+        score_str = ", ".join(f"{r['score']:.3f}" for r in results)
+        log(f"[on_prompt] search done | results={len(results)} scores=[{score_str}]")
+        print(
+            f"[lynx-memory] {len(results)} hit(s)"
+            + (f": [{score_str}]" if results else ""),
+            file=sys.stderr,
         )
     except Exception as e:
         log(f"[on_prompt] ERROR: {e}\n{traceback.format_exc()}")
         return 0
 
     if not results:
+        log("[on_prompt] no results above min_score, skipping injection")
         return 0
 
     try:

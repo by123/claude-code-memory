@@ -99,8 +99,12 @@ class SettingsBody(BaseModel):
     summary_backend: str
     anthropic_api_key: Optional[str] = None
     openai_api_key: Optional[str] = None
+    voyage_api_key: Optional[str] = None
     openai_model: str = "gpt-4o-mini"
     openai_base_url: str = ""
+    embedding_backend: str = "voyage"
+    openai_embedding_model: str = "text-embedding-3-large"
+    voyage_model: str = "voyage-3.5"
 
 
 def _try_open_with_command(cmd: list[str]) -> bool:
@@ -344,8 +348,13 @@ def create_app() -> FastAPI:
         def _key_set(key: str) -> bool:
             return bool(stored.get(key) or os.environ.get(key, "").strip())
 
+        def _get_key(key: str) -> str:
+            return stored.get(key) or os.environ.get(key, "") or ""
+
         raw_backend = _get("SUMMARY_BACKEND", "")
         backend = raw_backend if raw_backend in ("sdk", "openai") else "sdk"
+        raw_emb = _get("EMBEDDING_BACKEND", "voyage")
+        embedding_backend = raw_emb if raw_emb in ("voyage", "openai") else "voyage"
         return {
             "summary_enabled": _get("SUMMARY_ENABLED", "1") not in ("0", "false", "off", "no"),
             "top_k": int(_get("TOP_K", "5")),
@@ -355,8 +364,15 @@ def create_app() -> FastAPI:
             "summary_backend": backend,
             "anthropic_api_key_set": _key_set("ANTHROPIC_API_KEY"),
             "openai_api_key_set": _key_set("OPENAI_API_KEY"),
+            "voyage_api_key_set": _key_set("VOYAGE_API_KEY"),
+            "anthropic_api_key_value": _get_key("ANTHROPIC_API_KEY"),
+            "openai_api_key_value": _get_key("OPENAI_API_KEY"),
+            "voyage_api_key_value": _get_key("VOYAGE_API_KEY"),
             "openai_model": _get("OPENAI_MODEL", "gpt-4o-mini"),
             "openai_base_url": _get("OPENAI_BASE_URL", ""),
+            "embedding_backend": embedding_backend,
+            "openai_embedding_model": _get("OPENAI_EMBEDDING_MODEL", "text-embedding-3-large"),
+            "voyage_model": _get("VOYAGE_MODEL", "voyage-3.5"),
         }
 
     @app.put("/api/settings")
@@ -374,6 +390,9 @@ def create_app() -> FastAPI:
         set_key(str(env_file), "SUMMARY_MODEL", body.summary_model.strip())
         set_key(str(env_file), "SUMMARY_BACKEND", body.summary_backend)
         set_key(str(env_file), "OPENAI_MODEL", body.openai_model.strip() or "gpt-4o-mini")
+        set_key(str(env_file), "EMBEDDING_BACKEND", body.embedding_backend)
+        set_key(str(env_file), "OPENAI_EMBEDDING_MODEL", body.openai_embedding_model.strip() or "text-embedding-3-large")
+        set_key(str(env_file), "VOYAGE_MODEL", body.voyage_model.strip() or "voyage-3.5")
         openai_base_url = body.openai_base_url.strip()
         if openai_base_url:
             set_key(str(env_file), "OPENAI_BASE_URL", openai_base_url)
@@ -387,6 +406,9 @@ def create_app() -> FastAPI:
         os.environ["SUMMARY_MODEL"] = body.summary_model.strip()
         os.environ["SUMMARY_BACKEND"] = body.summary_backend
         os.environ["OPENAI_MODEL"] = body.openai_model.strip() or "gpt-4o-mini"
+        os.environ["EMBEDDING_BACKEND"] = body.embedding_backend
+        os.environ["OPENAI_EMBEDDING_MODEL"] = body.openai_embedding_model.strip() or "text-embedding-3-large"
+        os.environ["VOYAGE_MODEL"] = body.voyage_model.strip() or "voyage-3.5"
         if openai_base_url:
             os.environ["OPENAI_BASE_URL"] = openai_base_url
         else:
@@ -396,6 +418,7 @@ def create_app() -> FastAPI:
         for env_key, value in [
             ("ANTHROPIC_API_KEY", body.anthropic_api_key),
             ("OPENAI_API_KEY", body.openai_api_key),
+            ("VOYAGE_API_KEY", body.voyage_api_key),
         ]:
             if value is None:
                 continue  # field not sent — leave unchanged
